@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
+
+set -euo pipefail
+
+if [[ ! -f /run/.containerenv ]]; then
+    echo "ERROR: not in a container." >&2
+fi
+
+h=/dbx
+
+dnf install -y \
+    fish \
+    fzf \
+    netcat \
+    ripgrep \
+    vim-enhanced
+
+if [[ ! -d $h ]]; then
+    usermod \
+        --home $h \
+        --groups wheel \
+        --password "" \
+        --shell $(command -v fish) \
+        $(id -nu 1000)
+
+    mkdir --parents $h
+    chown --recursive 1000:1000 $h
+fi
+
+touch /run/.dbxenv
+sleep infinity

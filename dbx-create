@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
+
+set -euo pipefail
+
+r="$HOME/.dbx"
+d="$HOME/Developer/dbxroot"
+
+podman create \
+       --hostname dbx \
+       --label manager=dbx \
+       --name dbx \
+       --user root:root \
+       --userns keep-id \
+       --volume "$d:$d:z" \
+       --volume "$r/dbx-init:/usr/local/bin/dbx-init:ro,z" \
+       registry.fedoraproject.org/fedora-toolbox:43 \
+       dbx-init
