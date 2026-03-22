@@ -4,15 +4,21 @@
 set -euo pipefail
 
 r="$HOME/.dbx"
+c="dbx"
 d="$HOME/Developer/dbxroot"
 
+if podman container exists dbx; then
+    echo "already created"
+    exit
+fi
+
 podman create \
-       --hostname dbx \
-       --label manager=dbx \
-       --name dbx \
-       --user root:root \
-       --userns keep-id \
-       --volume "$d:$d:z" \
-       --volume "$r/dbx-init:/usr/local/bin/dbx-init:ro,z" \
-       registry.fedoraproject.org/fedora-toolbox:43 \
-       dbx-init
+    --hostname dbx \
+    --label manager=dbx \
+    --name "$c" \
+    --user root:root \
+    --userns keep-id \
+    --volume "$d:$d:z" \
+    --volume "$r/dbx-init:/usr/local/bin/dbx-init:ro,z" \
+    registry.fedoraproject.org/fedora-toolbox:43 \
+    dbx-init "$(id -u)" "$(id -g)"

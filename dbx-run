@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "ERROR: missing command to run" >&2
+    exit 1
+fi
+
+c="dbx"
+d="$HOME/Developer/dbxroot"
+
+w="$(realpath "$PWD")"
+if [[ "$w" != "$d"* ]]; then
+    w="$d"
+fi
+
+tty="tty"
+if [[ ! -t 0 ]]; then
+    tty="tty=false"
+fi
+
+podman start "$c" >/dev/null
+exec podman exec \
+    --detach-keys "" \
+    --interactive \
+    --"$tty" \
+    --user "$(id -u):$(id -g)" \
+    --workdir "$w" \
+    dbx \
+    "$@"

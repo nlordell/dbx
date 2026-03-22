@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
+
+set -euo pipefail
+
+r="$HOME/.dbx"
+
+"$r/dbx-run" fish --login

@@ -4,10 +4,12 @@
 set -euo pipefail
 
 if [[ ! -f /run/.containerenv ]]; then
-    echo "ERROR: not in a container." >&2
+    echo "ERROR: not in a container" >&2
 fi
 
-h=/dbx
+h="/dbx"
+u="${1:-1000}"
+g="${2:-1000}"
 
 dnf install -y \
     fish \
@@ -16,16 +18,16 @@ dnf install -y \
     ripgrep \
     vim-enhanced
 
-if [[ ! -d $h ]]; then
+if [[ ! -d "$h" ]]; then
     usermod \
-        --home $h \
+        --home "$h" \
         --groups wheel \
         --password "" \
         --shell $(command -v fish) \
-        $(id -nu 1000)
+        $(id -nu "$u")
 
-    mkdir --parents $h
-    chown --recursive 1000:1000 $h
+    mkdir --parents "$h"
+    chown --recursive "$u:$g" "$h"
 fi
 
 touch /run/.dbxenv
