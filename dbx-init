@@ -16,6 +16,7 @@ dnf install -y \
     fzf \
     netcat \
     ripgrep \
+    tini \
     vim-enhanced
 
 if [[ ! -d "$h" ]]; then
@@ -31,4 +32,4 @@ if [[ ! -d "$h" ]]; then
 fi
 
 touch /run/.dbxenv
-sleep infinity
+exec tini sleep infinity
