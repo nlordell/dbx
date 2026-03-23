@@ -7,7 +7,7 @@ r="$HOME/.dbx"
 c="dbx"
 d="$HOME/Developer/dbxroot"
 
-if podman container exists dbx; then
+if podman container exists "$c"; then
     echo "already created"
     exit
 fi

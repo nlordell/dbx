@@ -11,22 +11,25 @@ fi
 c="dbx"
 d="$HOME/Developer/dbxroot"
 
-w="$(realpath "$PWD")"
-if [[ "$w" != "$d"* ]]; then
-    w="$d"
+workdir="$(realpath "$PWD")"
+if [[ "$workdir" != "$d"* ]]; then
+    workdir="$d"
 fi
 
 tty="tty"
-if [[ ! -t 0 ]]; then
+if [[ ! -t 0 || ! -t 1 ]]; then
     tty="tty=false"
 fi
+
+cmd="$1"
+shift
 
 podman start "$c" >/dev/null
 exec podman exec \
     --detach-keys "" \
     --interactive \
     --"$tty" \
-    --user "$(id -u):$(id -g)" \
-    --workdir "$w" \
-    dbx \
-    "$@"
+    --user "$(id -u)" \
+    --workdir "$workdir" \
+    "$c" \
+    fish -c "exec '$cmd'"' $argv' -- "$@"

@@ -11,15 +11,17 @@ dbx - containerized development environments
 USAGE:
     dbx create              creates a devbox if one does not already exist
     dbx [enter]             enters the devbox in the current directory
+    dbx link CMD            creates a host link to a devbox command
+    dbx proxy PORT          proxies a container port to the host
     dbx run CMD [ARGS...]   runs a command within the devbox
 EOF
 }
 
 cmd="${1:-enter}"
-shift
+shift || true
 
 case "$#:$cmd" in
-    0:create|0:enter|[1-9]:run|[1-9][0-9]:run)
+    0:create|0:enter|1:link|1:proxy|[1-9]:run|[1-9][0-9]:run)
         "$r/dbx-$cmd" "$@"
         ;;
     *)

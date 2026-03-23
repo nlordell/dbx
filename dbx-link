@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: 0BSD
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "ERROR: missing command to link" >&2
+    exit 1
+fi
+
+r="$HOME/.dbx"
+c="dbx"
+p="$HOME/.local/share/dbx/bin"
+
+cmd="$1"
+link="$p/$cmd"
+if [[ -e "$link" ]]; then
+    echo "already linked"
+    exit
+fi
+
+if ! "$r/dbx-run" which "$cmd" &>/dev/null; then
+    echo "ERROR: command '$cmd' not found"
+    exit 1
+fi
+
+mkdir -p "$p"
+echo "#!/bin/sh" > "$link"
+echo "exec '$r/dbx-run' '$cmd' "'"$@"' >> "$link"
+chmod +x "$link"

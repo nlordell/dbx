@@ -3,6 +3,20 @@
 
 set -euo pipefail
 
-r="$HOME/.dbx"
+c="dbx"
+d="$HOME/Developer/dbxroot"
 
-"$r/dbx-run" fish --login
+workdir="$(realpath "$PWD")"
+if [[ "$workdir" != "$d"* ]]; then
+    workdir="$d"
+fi
+
+podman start "$c" >/dev/null
+exec podman exec \
+    --detach-keys "" \
+    --interactive \
+    --tty \
+    --user "$(id -u)" \
+    --workdir "$workdir" \
+    "$c" \
+    fish --login
