@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: 0BSD
+# SPDX-License-Identifier: GPL-3.0-only
 
 set -euo pipefail
 
-r="$HOME/.dbx"
+r="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 c="dbx"
-d="$HOME/Developer/dbxroot"
+d="$HOME/Developer"
 
 if podman container exists "$c"; then
     echo "already created"
@@ -22,3 +22,4 @@ podman create \
     --volume "$r/dbx-init:/usr/local/bin/dbx-init:ro,z" \
     registry.fedoraproject.org/fedora-toolbox:43 \
     dbx-init "$(id -u)" "$(id -g)"
+podman start "$c" >/dev/null

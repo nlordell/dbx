@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: 0BSD
+# SPDX-License-Identifier: GPL-3.0-only
 
 set -euo pipefail
 
@@ -8,7 +8,7 @@ if [[ $# -ne 1 ]]; then
     exit 1
 fi
 
-r="$HOME/.dbx"
+r="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 c="dbx"
 p="$HOME/.local/share/dbx/bin"
 

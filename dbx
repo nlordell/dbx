@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-only
 
 set -euo pipefail
 
-r="$HOME/.dbx"
+r="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 
 usage() {
     cat <<EOF

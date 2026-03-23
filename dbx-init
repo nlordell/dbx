@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: 0BSD
+# SPDX-License-Identifier: GPL-3.0-only
 
 set -euo pipefail
 
@@ -31,5 +31,6 @@ if [[ ! -d "$h" ]]; then
     chown --recursive "$u:$g" "$h"
 fi
 
+echo "=== READY TO ROLL! ==="
 touch /run/.dbxenv
 exec tini sleep infinity
