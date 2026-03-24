@@ -33,4 +33,4 @@ fi
 
 echo "=== READY TO ROLL! ==="
 touch /run/.dbxenv
-exec tini sleep infinity
+exec tini sleep -- infinity
