@@ -1,0 +1,4 @@
+(executable
+ (public_name dbx)
+ (name dbx)
+ (libraries unix))
