@@ -10,14 +10,6 @@ let wrap_err f =
     if String.equal param "" then Cmd.failf ~code:3 "%s: %s" fn msg
     else Cmd.failf ~code:3 "%s: %s '%s'" fn msg param
 
-let success cmd args =
-  let cmdline =
-    Filename.quote_command cmd args ~stdin:"/dev/null" ~stdout:"/dev/null"
-      ~stderr:"/dev/null"
-  in
-  let status = wrap_err (fun () -> Unix.system cmdline) in
-  match status with Unix.WEXITED 0 -> true | _ -> false
-
 let exit_result cmd status =
   let code =
     match status with
@@ -26,6 +18,18 @@ let exit_result cmd status =
   in
   if code = 0 then ()
   else Cmd.failf ~code:3 "command '%s' exited with code %d" cmd code
+
+let status cmd args =
+  let cmdline =
+    Filename.quote_command cmd args ~stdin:"/dev/null" ~stdout:"/dev/null"
+      ~stderr:"/dev/null"
+  in
+  wrap_err (fun () -> Unix.system cmdline)
+
+let success cmd args =
+  match status cmd args with Unix.WEXITED 0 -> true | _ -> false
+
+let quiet cmd args = status cmd args |> exit_result cmd
 
 let run cmd args =
   let cmdline = Filename.quote_command cmd args in

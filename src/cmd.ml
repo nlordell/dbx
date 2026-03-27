@@ -68,23 +68,21 @@ let run ?default cs =
 module Args = struct
   let badf fmt = Printf.ksprintf (fun s -> raise (Arg.Bad s)) fmt
 
-  let set_string_once key doc =
-    let value = ref None in
+  let name () =
+    let value = ref "dbx" in
+    let set = ref false in
     let spec =
-      ( key,
+      ( "-n",
         Arg.String
           (fun v ->
-            if Option.is_none !value then value := Some v
-            else badf "option '%s' can only be specified once" key),
-        doc )
+            if not !set then begin
+              value := v;
+              set := true
+            end
+            else badf "option '-n' can only be specified once"),
+        "<name> Development container name. [default: dbx]" )
     in
     (value, spec)
-
-  let name () =
-    let value, spec =
-      set_string_once "-n" "<name> Development container name. [default: dbx]"
-    in
-    ((fun () -> Option.value !value ~default:"dbx"), spec)
 end
 
 let parse ?anon argv specs msg =

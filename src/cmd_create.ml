@@ -25,10 +25,8 @@ let run argv =
     ]
     "dbx create [-n <name>] [[-w <dir>]...]";
 
-  if Proc.success "podman" [ "container"; "exists"; name () ] then begin
-    print_endline "already created";
-    exit 0
-  end;
+  if Proc.success "podman" [ "container"; "exists"; !name ] then
+    Cmd.failf "already created";
 
   let dirs =
     if List.is_empty !dirs then Lazy.force mounts else List.rev !dirs
@@ -46,9 +44,9 @@ let run argv =
   Proc.run "podman"
     ([
        "create";
-       "--hostname=" ^ name ();
+       "--hostname=" ^ !name;
        "--label=manager=dbx";
-       "--name=" ^ name ();
+       "--name=" ^ !name;
        "--user=root:root";
        "--userns=keep-id";
        "--volume=" ^ exe ^ ":/usr/local/bin/dbx:ro";
@@ -57,7 +55,7 @@ let run argv =
     @ [ image; "dbx"; "init"; "-u"; Int.to_string uid; "-g"; Int.to_string gid ]
     );
 
-  Proc.output "podman" [ "start"; name () ] |> ignore;
-  Proc.wait_line "podman" [ "logs"; "--follow"; name () ] Container.ready_marker
+  Proc.quiet "podman" [ "start"; !name ];
+  Proc.wait_line "podman" [ "logs"; "--follow"; !name ] Container.ready_marker
 
 let cmd = ("create", run, "Create a development container.")
