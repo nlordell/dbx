@@ -36,8 +36,8 @@ let run argv =
   List.iter check_selinux dirs;
 
   let exe = Unix.realpath Sys.executable_name in
-  let uid = string_of_int (Unix.getuid ()) in
-  let gid = string_of_int (Unix.getgid ()) in
+  let uid = Unix.getuid () in
+  let gid = Unix.getgid () in
   let volumes =
     List.map Unix.realpath dirs
     |> List.map (fun d -> Printf.sprintf "--volume=%s:%s" d d)
@@ -54,7 +54,8 @@ let run argv =
        "--volume=" ^ exe ^ ":/usr/local/bin/dbx:ro";
      ]
     @ volumes
-    @ [ image; "dbx"; "init"; "-u"; uid; "-g"; gid ]);
+    @ [ image; "dbx"; "init"; "-u"; Int.to_string uid; "-g"; Int.to_string gid ]
+    );
 
   Proc.output "podman" [ "start"; name () ] |> ignore;
   Proc.wait_line "podman" [ "logs"; "--follow"; name () ] Cmd_init.ready_marker
