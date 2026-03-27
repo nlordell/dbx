@@ -1,5 +1,7 @@
 (** Command line interface errors. *)
 
+let container = "dbx"
+
 exception Cmd_error of { code : int; message : string; details : string option }
 
 let fail ?(code = 1) ?details message =
@@ -15,15 +17,16 @@ let run ?default cs =
   let oor a b = match a with Some a -> Some a | None -> b in
   let name () = Option.value Sys.argv.?(0) ~default:"(?)" in
   let commands () =
+    let d = List.filter (fun (_, _, doc) -> String.length doc > 0) cs in
     let w =
-      List.map (fun (name, _, _) -> String.length name) cs
+      List.map (fun (name, _, _) -> String.length name) d
       |> List.fold_left Int.max 0
     in
     let b = Buffer.create 128 in
     Buffer.add_string b "dbx [command]\n";
     List.iter
       (fun (name, _, doc) -> Printf.bprintf b "  %-*s  %s\n" w name doc)
-      cs;
+      d;
     Buffer.contents b
   in
   let cmd, run =
@@ -63,10 +66,31 @@ let run ?default cs =
       |> prerr_newline;
       exit 125
 
+module Args = struct
+  let badf fmt = Printf.ksprintf (fun s -> raise (Arg.Bad s)) fmt
+
+  let set_string_once key doc =
+    let value = ref None in
+    let spec =
+      ( key,
+        Arg.String
+          (fun v ->
+            if Option.is_none !value then value := Some v
+            else badf "option '%s' can only be specified once" key),
+        doc )
+    in
+    (value, spec)
+
+  let name () =
+    let value, spec =
+      set_string_once "-n" "<name> Development container name. [default: dbx]"
+    in
+    ((fun () -> Option.value !value ~default:container), spec)
+end
+
 let parse ?anon argv specs msg =
   let help_msg = ref (fun () -> "") in
   let help () = raise (Arg.Help (!help_msg ())) in
-  let badf fmt = Printf.ksprintf (fun s -> raise (Arg.Bad s)) fmt in
   let specs' =
     Arg.(
       align @@ specs
@@ -74,8 +98,9 @@ let parse ?anon argv specs msg =
           ("-h", Unit help, " Display this list of options");
           ("--help", Unit help, "");
           (* hide '-help' *)
-          ("-help", Unit (fun () -> badf "unknown option '-help'"), "");
+          ("-help", Unit (fun () -> Args.badf "unknown option '-help'"), "");
         ])
+    |> List.sort (fun (a, _, _) (b, _, _) -> String.compare a b)
   in
   let specs', anon', finish =
     match anon with
@@ -85,7 +110,8 @@ let parse ?anon argv specs msg =
         ( ( "--",
             Arg.Rest_all
               (fun a ->
-                if List.length !args > 0 then badf "unexpected separator '--'";
+                if List.length !args > 0 then
+                  Args.badf "unexpected separator '--'";
                 rest := true;
                 anon a),
             "" )
@@ -93,7 +119,9 @@ let parse ?anon argv specs msg =
           (fun arg -> args := arg :: !args),
           fun () -> if not !rest then anon @@ List.rev !args else () )
     | None ->
-        (specs', (fun arg -> badf "unexpected argument '%s'" arg), fun () -> ())
+        ( specs',
+          (fun arg -> Args.badf "unexpected argument '%s'" arg),
+          fun () -> () )
   in
 
   (help_msg := fun () -> Arg.usage_string specs' msg);

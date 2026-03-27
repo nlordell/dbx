@@ -1,7 +1,7 @@
 (** Container init process. *)
 
 let home = "/dbx"
-let packages = [ "fish"; "netcat"; "which" ]
+let packages = [ "fish"; "netcat"; "tini"; "which" ]
 let ready_marker = "=== READY TO ROLL! ==="
 
 let run argv =
@@ -36,14 +36,10 @@ let run argv =
     Proc.run "dnf" ("install" :: "-y" :: packages);
     Proc.run "usermod"
       [
-        "--home";
-        home;
-        "--groups";
-        "wheel";
-        "--password";
-        "";
-        "--shell";
-        which "fish";
+        "--home=" ^ home;
+        "--groups=wheel";
+        "--password=";
+        "--shell=" ^ which "fish";
         user !uid;
       ];
     Unix.mkdir home 0o700;
@@ -51,8 +47,6 @@ let run argv =
   end;
 
   print_endline ready_marker;
-  while true do
-    Unix.sleep Int.max_int
-  done
+  Proc.exec "tini" [ "sleep"; "--"; "infinity" ]
 
-let cmd = ("init", run, "devbox init process")
+let cmd = ("init", run, "")

@@ -42,7 +42,15 @@ let pipe cmd args f =
   let status = ref None in
   let result =
     Fun.protect
-      (fun () -> f process)
+      (fun () ->
+        try f process
+        with ex ->
+          begin try
+            let pid = Unix.process_pid process in
+            Unix.kill pid Sys.sigkill
+          with _ -> ()
+          end;
+          raise ex)
       ~finally:(fun () -> status := Some (Unix.close_process process))
   in
   exit_result cmd @@ Option.get !status;
@@ -53,15 +61,16 @@ let output cmd args =
       close_out_noerr stdin;
       In_channel.input_all stdout)
 
-type line_result = Continue | Stop
-
-let lines cmd args f =
-  pipe cmd args (fun (stdout, stdin) ->
-      close_out_noerr stdin;
-      let should_continue = function Continue -> true | _ -> false in
-      let rec loop () =
-        match In_channel.input_line stdout with
-        | Some line when should_continue @@ f line -> loop ()
-        | _ -> ()
-      in
-      loop ())
+let wait_line cmd args line =
+  try
+    pipe cmd args (fun (stdout, stdin) ->
+        close_out_noerr stdin;
+        let rec loop () =
+          match In_channel.input_line stdout with
+          | Some l when l = line -> raise Sys.Break
+          | Some l -> print_endline l |> loop
+          | None -> ()
+        in
+        loop ());
+    Cmd.failf "command '%s' exited unexpectedly" cmd
+  with Sys.Break -> ()
