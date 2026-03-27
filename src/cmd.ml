@@ -1,7 +1,5 @@
 (** Command line interface errors. *)
 
-let container = "dbx"
-
 exception Cmd_error of { code : int; message : string; details : string option }
 
 let fail ?(code = 1) ?details message =
@@ -51,8 +49,9 @@ let run ?default cs =
         exit 2
   in
   let argv =
-    let rest = Array.sub Sys.argv 1 (Array.length Sys.argv - 1) in
-    rest.(0) <- Printf.sprintf "%s %s" Sys.argv.(0) Sys.argv.(1);
+    let len = Array.length Sys.argv in
+    let rest = if len > 1 then Array.sub Sys.argv 1 (len - 1) else [| "" |] in
+    rest.(0) <- Printf.sprintf "%s %s" (name ()) cmd;
     rest
   in
   try run argv with
@@ -85,7 +84,7 @@ module Args = struct
     let value, spec =
       set_string_once "-n" "<name> Development container name. [default: dbx]"
     in
-    ((fun () -> Option.value !value ~default:container), spec)
+    ((fun () -> Option.value !value ~default:"dbx"), spec)
 end
 
 let parse ?anon argv specs msg =

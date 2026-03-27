@@ -58,6 +58,6 @@ let run argv =
     );
 
   Proc.output "podman" [ "start"; name () ] |> ignore;
-  Proc.wait_line "podman" [ "logs"; "--follow"; name () ] Cmd_init.ready_marker
+  Proc.wait_line "podman" [ "logs"; "--follow"; name () ] Container.ready_marker
 
 let cmd = ("create", run, "Create a development container.")

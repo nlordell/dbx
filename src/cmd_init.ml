@@ -1,9 +1,5 @@
 (** Container init process. *)
 
-let home = "/dbx"
-let packages = [ "fish"; "netcat"; "tini"; "which" ]
-let ready_marker = "=== READY TO ROLL! ==="
-
 let run argv =
   let which cmd = Proc.output "which" [ cmd ] |> String.trim in
   let user uid =
@@ -32,21 +28,21 @@ let run argv =
           (Signal_handle (fun _ -> Cmd.fail ~code:(s + 128) "interrupted"))))
     Sys.[ sigint; sigterm ];
 
-  if not (Sys.file_exists home) then begin
-    Proc.run "dnf" ("install" :: "-y" :: packages);
+  if not (Sys.file_exists Container.home) then begin
+    Proc.run "dnf" ("install" :: "-y" :: Container.packages);
     Proc.run "usermod"
       [
-        "--home=" ^ home;
+        "--home=" ^ Container.home;
         "--groups=wheel";
         "--password=";
-        "--shell=" ^ which "fish";
+        "--shell=" ^ which Container.shell;
         user !uid;
       ];
-    Unix.mkdir home 0o700;
-    Unix.chown home !uid !gid
+    Unix.mkdir Container.home 0o700;
+    Unix.chown Container.home !uid !gid
   end;
 
-  print_endline ready_marker;
+  print_endline Container.ready_marker;
   Proc.exec "tini" [ "sleep"; "--"; "infinity" ]
 
 let cmd = ("init", run, "")
