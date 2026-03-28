@@ -1,4 +1,4 @@
 (executable
  (public_name dbx)
  (name main)
- (libraries unix))
+ (libraries threads unix))

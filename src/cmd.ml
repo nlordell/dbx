@@ -83,16 +83,24 @@ module Args = struct
         "<name> Development container name. [default: dbx]" )
     in
     (value, spec)
+
+  let single args what =
+    match args with
+    | [] -> badf "exepected %s" what
+    | [ v ] -> v
+    | _ :: x :: _ -> badf "unexpected argument '%s'" x
 end
 
 let parse ?anon argv specs msg =
+  let ( .?() ) a i = try Some a.(i) with _ -> None in
+  let name () = Option.value argv.?(0) ~default:"(?)" in
   let help_msg = ref (fun () -> "") in
   let help () = raise (Arg.Help (!help_msg ())) in
   let specs' =
     Arg.(
       align @@ specs
       @ [
-          ("-h", Unit help, " Display this list of options");
+          ("-h", Unit help, " Display this list of options.");
           ("--help", Unit help, "");
           (* hide '-help' *)
           ("-help", Unit (fun () -> Args.badf "unknown option '-help'"), "");
@@ -101,7 +109,7 @@ let parse ?anon argv specs msg =
   in
   let specs', anon', finish =
     match anon with
-    | Some anon ->
+    | Some anon -> (
         let args = ref [] in
         let rest = ref false in
         ( ( "--",
@@ -114,7 +122,11 @@ let parse ?anon argv specs msg =
             "" )
           :: specs',
           (fun arg -> args := arg :: !args),
-          fun () -> if not !rest then anon @@ List.rev !args else () )
+          fun () ->
+            if not !rest then
+              try anon @@ List.rev !args
+              with Arg.Bad msg ->
+                Args.badf "%s: %s.\n%s" (name ()) msg (!help_msg ()) ))
     | None ->
         ( specs',
           (fun arg -> Args.badf "unexpected argument '%s'" arg),

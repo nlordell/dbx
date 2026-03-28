@@ -40,7 +40,16 @@ let exec cmd args =
   let args' = Array.of_list (cmd :: args) in
   wrap_err (fun () -> Unix.execvp cmd args')
 
-let pipe cmd args f =
+let pipe cmd args fd =
+  let args' = Array.of_list (cmd :: args) in
+  let _, status =
+    wrap_err (fun () ->
+        let pid = Unix.create_process cmd args' fd fd Unix.stderr in
+        Unix.waitpid [] pid)
+  in
+  exit_result cmd status
+
+let stream cmd args f =
   let args' = Array.of_list (cmd :: args) in
   let process = wrap_err (fun () -> Unix.open_process_args cmd args') in
   let status = ref None in
@@ -61,13 +70,13 @@ let pipe cmd args f =
   result
 
 let output cmd args =
-  pipe cmd args (fun (stdout, stdin) ->
+  stream cmd args (fun (stdout, stdin) ->
       close_out_noerr stdin;
       In_channel.input_all stdout)
 
 let wait_line cmd args line =
   try
-    pipe cmd args (fun (stdout, stdin) ->
+    stream cmd args (fun (stdout, stdin) ->
         close_out_noerr stdin;
         let rec loop () =
           match In_channel.input_line stdout with

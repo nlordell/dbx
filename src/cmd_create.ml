@@ -10,8 +10,11 @@ let check_selinux dir =
   in
   if t = "container_file_t" then ()
   else
-    Cmd.failf "%s' is labeled '%s', not 'container_file_t'" dir t
-      ~details:(Printf.sprintf "Run: `chcon -Rt container_file_t '%s'`" dir)
+    Printf.printf
+      "WARNING: %s' is labeled '%s', not 'container_file_t'\n\
+      \         Run: chcon -Rt container_file_t '%s'"
+      dir t dir
+    |> print_newline
 
 let run argv =
   let name, name_spec = Cmd.Args.name () in

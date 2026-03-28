@@ -22,9 +22,7 @@ let run argv =
   let search = ref false in
   let cmd = ref "" in
   Cmd.parse argv
-    ~anon:(function
-      | [ c ] -> cmd := c
-      | _ -> Cmd.Args.badf "expected exactly one command to link")
+    ~anon:(fun c -> cmd := Cmd.Args.single c "command to link")
     [ name_spec; ("-s", Arg.Set search, " Links always search $PATH.") ]
     "dbx link [-n <name>] [-s] [--] <cmd>";
 
