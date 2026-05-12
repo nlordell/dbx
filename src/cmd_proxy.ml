@@ -38,21 +38,26 @@ let run argv =
     Printf.ksprintf (if !verbose then print_endline else ignore) fmt
   in
 
-  let server = Unix.(socket PF_INET SOCK_STREAM 0) in
-  Unix.(setsockopt server TCP_NODELAY true);
-  Unix.bind server Unix.(ADDR_INET (!addr, !host_port));
-  Unix.listen server 16;
+  Container.start !name;
+
+  let server =
+    Cmd.with_err ~message:"failed to listen on host port" (fun () ->
+        let server = Unix.(socket PF_INET SOCK_STREAM 0) in
+        Unix.(setsockopt server TCP_NODELAY true);
+        Unix.bind server Unix.(ADDR_INET (!addr, !host_port));
+        Unix.listen server 16;
+        server)
+  in
 
   logf "listening on localhost:%d" !port;
 
+  let uid = Unix.getuid () in
   let connection (client, addr) =
     Fun.protect
       (fun () ->
         logf "connected %s" @@ peer_id addr;
-        begin try
-          let uid = Unix.getuid () in
-          Proc.quiet "podman" [ "start"; !name ];
-          Proc.pipe "podman"
+        try
+          Proc.pipe "podman" ~stdin:client ~stdout:client
             [
               "exec";
               "--interactive";
@@ -63,16 +68,18 @@ let run argv =
               "localhost";
               Int.to_string !port;
             ]
-            client
-        with e -> logf "error proxying connection: %s" @@ Printexc.to_string e
-        end)
+        with e -> logf "error proxying connection: %s" @@ Printexc.to_string e)
       ~finally:(fun () ->
-        Unix.close client;
+        (try Unix.(shutdown client SHUTDOWN_ALL)
+         with e -> logf "client shutdown error: %s" @@ Printexc.to_string e);
+        (try Unix.(close client)
+         with e -> logf "client close error: %s" @@ Printexc.to_string e);
         logf "disconnected %s" @@ peer_id addr)
   in
 
   let rec loop () =
-    let conn = Unix.accept server in
+    let conn = Cmd.with_err ~message:"failed to accept
+                 Unix.accept server in
     Thread.create connection conn |> ignore;
     loop ()
   in

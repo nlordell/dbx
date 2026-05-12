@@ -7,6 +7,21 @@ let fail ?(code = 1) ?details message =
 
 let failf ?code ?details fmt = Printf.ksprintf (fail ?code ?details) fmt
 
+let with_err ?code ?details ~message f =
+  try f () with
+  | Failure msg ->
+      fail ?code ~details:(Option.value details ~default:msg) message
+  | Unix.Unix_error (err, fn, param) ->
+      let details =
+        match details with
+        | Some value -> value
+        | None ->
+            let msg = Unix.error_message err in
+            if String.equal param "" then Printf.sprintf "%s: %s" fn msg
+            else Printf.sprintf "%s: %s '%s'" fn msg param
+      in
+      fail ?code ~details message
+
 type run = string array -> unit
 type subcommand = string * run * string
 

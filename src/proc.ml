@@ -3,12 +3,7 @@
     This module provides a high-level and convenient API for spawing child
     processes in various forms. *)
 
-let wrap_err f =
-  try f ()
-  with Unix.Unix_error (err, fn, param) ->
-    let msg = Unix.error_message err in
-    if String.equal param "" then Cmd.failf ~code:3 "%s: %s" fn msg
-    else Cmd.failf ~code:3 "%s: %s '%s'" fn msg param
+let failwithf fmt = Printf.ksprintf failwith fmt
 
 let exit_result cmd status =
   let code =
@@ -16,15 +11,14 @@ let exit_result cmd status =
     | Unix.WEXITED ec -> ec
     | Unix.WSIGNALED s | Unix.WSTOPPED s -> 128 + s
   in
-  if code = 0 then ()
-  else Cmd.failf ~code:3 "command '%s' exited with code %d" cmd code
+  if code = 0 then () else failwithf "command '%s' exited with code %d" cmd code
 
 let status cmd args =
   let cmdline =
     Filename.quote_command cmd args ~stdin:"/dev/null" ~stdout:"/dev/null"
       ~stderr:"/dev/null"
   in
-  wrap_err (fun () -> Unix.system cmdline)
+  Unix.system cmdline
 
 let success cmd args =
   match status cmd args with Unix.WEXITED 0 -> true | _ -> false
@@ -33,25 +27,22 @@ let quiet cmd args = status cmd args |> exit_result cmd
 
 let run cmd args =
   let cmdline = Filename.quote_command cmd args in
-  let status = wrap_err (fun () -> Unix.system cmdline) in
+  let status = Unix.system cmdline in
   exit_result cmd status
 
 let exec cmd args =
   let args' = Array.of_list (cmd :: args) in
-  wrap_err (fun () -> Unix.execvp cmd args')
+  Unix.execvp cmd args'
 
-let pipe cmd args fd =
+let pipe cmd args ~stdin ~stdout =
   let args' = Array.of_list (cmd :: args) in
-  let _, status =
-    wrap_err (fun () ->
-        let pid = Unix.create_process cmd args' fd fd Unix.stderr in
-        Unix.waitpid [] pid)
-  in
+  let pid = Unix.create_process cmd args' stdin stdout Unix.stderr in
+  let _, status = Unix.waitpid [] pid in
   exit_result cmd status
 
 let stream cmd args f =
   let args' = Array.of_list (cmd :: args) in
-  let process = wrap_err (fun () -> Unix.open_process_args cmd args') in
+  let process = Unix.open_process_args cmd args' in
   let status = ref None in
   let result =
     Fun.protect
@@ -85,5 +76,5 @@ let wait_line cmd args line =
           | None -> ()
         in
         loop ());
-    Cmd.failf "command '%s' exited unexpectedly" cmd
+    failwithf "command '%s' exited unexpectedly" cmd
   with Sys.Break -> ()

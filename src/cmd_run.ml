@@ -14,6 +14,6 @@ let run argv =
 
   let tty = Unix.(isatty stdin && isatty stdout) in
   let command = Printf.sprintf "exec '%s' $argv" !cmd in
-  Shell.exec ~tty !name ([ "--command=" ^ command; "--" ] @ !args)
+  Container.shell_exec ~tty !name ([ "--command=" ^ command; "--" ] @ !args)
 
 let cmd = ("run", run, "Run a command in the development container.")

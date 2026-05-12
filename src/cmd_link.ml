@@ -17,6 +17,23 @@ let write_link exe name cmd out =
   Printf.fprintf out {|#!/bin/sh|} |> nl;
   Printf.fprintf out {|exec '%s' run -n '%s' -- '%s' "$@"|} exe name cmd |> nl
 
+let which name cmd =
+  if not @@ Proc.success "podman" [ "container"; "exists"; name ] then
+    Cmd.failf "container '%s' does not exists" name
+      ~details:"make sure to create it with `dbx create`";
+  Proc.quiet "podman" [ "start"; name ];
+
+  Proc.output "podman"
+    [
+      "exec";
+      "--user=" ^ Int.to_string @@ Unix.getuid ();
+      name;
+      Container.shell;
+      "--command";
+      Printf.sprintf "which '%s'" cmd;
+    ]
+  |> String.trim
+
 let run argv =
   let name, name_spec = Cmd.Args.name () in
   let search = ref false in
@@ -30,7 +47,7 @@ let run argv =
   let link = Filename.concat bin !cmd in
   if Sys.file_exists link then Cmd.fail "already linked";
 
-  let path = Shell.which !name !cmd in
+  let path = which !name !cmd in
   let exe, cmd =
     if !search then (Filename.basename Sys.executable_name, !cmd)
     else (Unix.realpath Sys.executable_name, path)
