@@ -3,34 +3,8 @@
 
 set -euo pipefail
 
-if [[ ! -f /run/.containerenv ]]; then
-    echo "ERROR: not in a container" >&2
+if [[ ! -f /run/.dbxenv ]]; then
+    echo "ERROR: not in a devbox" >&2
 fi
 
-h="/dbx"
-u="${1:-1000}"
-g="${2:-1000}"
-
-dnf install -y \
-    fish \
-    fzf \
-    netcat \
-    ripgrep \
-    tini \
-    vim-enhanced
-
-if [[ ! -d "$h" ]]; then
-    usermod \
-        --home "$h" \
-        --groups wheel \
-        --password "" \
-        --shell $(command -v fish) \
-        $(id -nu "$u")
-
-    mkdir --parents "$h"
-    chown --recursive "$u:$g" "$h"
-fi
-
-echo "=== READY TO ROLL! ==="
-touch /run/.dbxenv
-exec tini sleep -- infinity
+exec tini sshd -- -D -e

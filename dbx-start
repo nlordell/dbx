@@ -3,8 +3,6 @@
 
 set -euo pipefail
 
-R="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 C="dbx"
 
 container start $C >/dev/null
-exec ssh -F "$R/ssh/config" $C

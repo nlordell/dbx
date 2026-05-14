@@ -3,23 +3,42 @@
 
 set -euo pipefail
 
-r="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
-c="dbx"
-d="$HOME/Developer"
+R="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+C="dbx"
 
-if podman container exists "$c"; then
-    echo "already created"
-    exit
-fi
+echo "TODO:"
+echo "- create temporary SSH key"
+echo "- generate SSH configuration for host and guest"
+echo "- create base container image"
+echo "  - initialize user"
+echo "  - add authorized keys for SSH login"
+echo "  - install required packages (sshd and tini)"
+echo "  - install nice to have packages (see toolbox image)"
+echo "  - setup socket cleanup with sshd_config"
+echo "- magic encantation to create container"
 
-podman create \
-    --hostname dbx \
-    --label manager=dbx \
-    --name "$c" \
-    --user root:root \
-    --userns keep-id \
-    --volume "$d:$d:z" \
-    --volume "$r/dbx-init:/usr/local/bin/dbx-init:ro,z" \
-    registry.fedoraproject.org/fedora-toolbox:43 \
-    dbx-init "$(id -u)" "$(id -g)"
-podman start "$c" >/dev/null
+#if ! id $DBX_USER &>/dev/null; then
+#	useradd \
+#		--comment "$DBX_USER_COMMENT" \
+#		--create-home \
+#		--groups sudo \
+#		--shell /usr/bin/bash \
+#		--uid 1000 \
+#		--user-group \
+#		$DBX_USER
+#fi
+# if container list --all | grep $C >/dev/null; then
+# 	echo "already created"
+# 	exit
+# fi
+# podman create \
+# 	--hostname dbx \
+# 	--label manager=dbx \
+# 	--name "$c" \
+# 	--user root:root \
+# 	--userns keep-id \
+# 	--volume "$d:$d:z" \
+# 	--volume "$r/dbx-init:/usr/local/bin/dbx-init:ro,z" \
+# 	registry.fedoraproject.org/fedora-toolbox:43 \
+# 	dbx-init "$(id -u)" "$(id -g)"
+# podman start "$c" >/dev/null
