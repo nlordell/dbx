@@ -3,3 +3,4 @@ Host dbx
   Port 4222
   IdentitiesOnly yes
   IdentityFile $PWD/ssh/id_ed25519
+  NoHostAuthenticationForLocalhost yes

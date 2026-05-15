@@ -30,6 +30,7 @@ RUN rm /etc/apt/apt.conf.d/docker-* && \
         wget \
         zip \
         && \
+    apt-get clean && \
     rm -dr /var/lib/apt/lists/*
 
 # Passwordless sudo
@@ -55,7 +56,9 @@ COPY --chmod=600 --chown=1000:1000 ssh/id_ed25519.pub /home/${USER}/.ssh/authori
 COPY --chown=1000:1000 custom/ /home/${USER}/
 RUN rm /home/${USER}/README.md
 RUN if [ -f /home/${USER}/extra-packages ]; then \
+        apt-get update && \
         apt-get install -y $(cat /home/${USER}/extra-packages | xargs) && \
+        apt-get clean && \
         rm -dr /var/lib/apt/lists/* /home/${USER}/extra-packages; \
     fi
 RUN if [ -x /home/${USER}/post-install ]; then \

@@ -12,5 +12,5 @@ R="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 C="dbx"
 
 port="$1"
-container start "$C" >/dev/null
+"$R/dbx-start"
 exec ssh -F "$R/ssh/config" -L "localhost:$port:localhost:$port" -N $C
