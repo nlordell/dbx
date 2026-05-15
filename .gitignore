@@ -1,1 +1,5 @@
+.container
+custom/*
+!custom/README.md
 ssh/id_*
+ssh/config

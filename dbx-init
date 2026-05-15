@@ -7,4 +7,4 @@ if [[ ! -f /run/.dbxenv ]]; then
     echo "ERROR: not in a devbox" >&2
 fi
 
-exec tini sshd -- -D -e
+exec tini /usr/sbin/sshd -- -D -e
