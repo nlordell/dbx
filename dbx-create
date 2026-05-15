@@ -14,4 +14,9 @@ if container list --all | grep $C >/dev/null; then
 	exit
 fi
 
-container create --name $C --publish 4222:22 $C
+container create \
+	--cpus 4 \
+	--memory 8G \
+	--name $C \
+	--publish 127.0.0.1:4222:22 \
+	$C

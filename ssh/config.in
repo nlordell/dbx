@@ -1,5 +1,5 @@
 Host dbx
-  HostName 127.0.0.1
+  HostName localhost
   Port 4222
   IdentitiesOnly yes
   IdentityFile $PWD/ssh/id_ed25519
