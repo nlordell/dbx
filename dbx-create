@@ -6,7 +6,7 @@ set -euo pipefail
 C="dbx"
 
 if ! container system status &>/dev/null; then
-	container system start
+	container system start >/dev/null
 fi
 
 if container list --all | grep $C >/dev/null; then
@@ -19,4 +19,5 @@ container create \
 	--memory 8G \
 	--name $C \
 	--publish 127.0.0.1:4222:22 \
-	$C
+	$C \
+	>/dev/null

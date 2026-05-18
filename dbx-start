@@ -6,7 +6,7 @@ set -euo pipefail
 C="dbx"
 
 if ! container system status &>/dev/null; then
-	container system start
+	container system start >/dev/null
 fi
 
-container start $C
+container start $C >/dev/null

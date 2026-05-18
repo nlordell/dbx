@@ -22,7 +22,7 @@ shift || true
 
 case "$#:$cmd" in
 	0:create|0:enter|1:proxy|0:start)
-		"$r/dbx-$cmd" "$@"
+		"$R/dbx-$cmd" "$@"
 		;;
 	*)
 		usage
