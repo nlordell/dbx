@@ -1,5 +1,6 @@
 .container
-custom/*
-!custom/README.md
+custom/extra-packages
+custom/post-install
+custom/skel/
+ssh/*.config
 ssh/id_*
-ssh/config

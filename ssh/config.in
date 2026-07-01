@@ -1,6 +1,6 @@
-Host dbx
-  HostName localhost
-  Port 4222
+Host $MACHINE
+  HostName $IP
   IdentitiesOnly yes
-  IdentityFile $PWD/ssh/id_ed25519
-  NoHostAuthenticationForLocalhost yes
+  IdentityFile $ROOT/ssh/id_ed25519
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null

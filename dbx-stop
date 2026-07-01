@@ -4,8 +4,12 @@
 
 set -euo pipefail
 
-root="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 machine="${DBX_MACHINE:-dbx}"
 
-"$root/dbx-start"
-exec ssh -F "$root/ssh/$machine.config" "$machine"
+if ! container system status &>/dev/null; then
+	exit 0
+fi
+
+container machine stop "$machine" &>/dev/null \
+	|| true
+container system stop >/dev/null
