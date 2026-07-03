@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
-# SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
 
 set -euo pipefail
 
+if [[ $# -ne 1 ]]; then
+	echo "ERROR: missing port to proxy" >&2
+	exit 1
+fi
+
 root="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 machine="${DBX_MACHINE:-dbx}"
+port="$1"
 
 "$root/dbx-start"
-exec ssh "$machine" -F "$root/ssh/$machine.config"
+exec ssh "$machine" -F "$root/ssh/$machine.config" \
+	-L "localhost:$port:localhost:$port" -N

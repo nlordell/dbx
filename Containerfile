@@ -7,12 +7,16 @@ RUN touch /run/.dbxenv
 RUN rm /etc/apt/apt.conf.d/docker-* && \
     apt-get update && \
     apt-get install -y \
+        locales \
         openssh-server \
         sudo \
         tini \
         && \
     apt-get clean && \
     rm -dr /var/lib/apt/lists/*
+
+# Configure locale with UTF-8 support
+RUN update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 # Configure SSH server
 COPY ssh/id_ed25519.pub /etc/ssh/authorized_keys

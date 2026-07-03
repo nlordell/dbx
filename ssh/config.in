@@ -3,4 +3,4 @@ Host $MACHINE
   IdentitiesOnly yes
   IdentityFile $ROOT/ssh/id_ed25519
   StrictHostKeyChecking no
-  UserKnownHostsFile /dev/null
+  UserKnownHostsFile $ROOT/ssh/$MACHINE.known_hosts
