@@ -1,16 +1,26 @@
-DBX_IMAGE ?= dbx
+CC      = cc
+CFLAGS  = -Wall -Wextra -O2
+LDFLAGS =
+
+SRCS = $(shell find src -name '*.c')
+OBJS = $(patsubst %.c,%.o,$(SRCS))
+
+CONTAINER = $(if $(findstring Darwin,$(shell uname -s)),container,podman)
+IMAGE     = dbx-next
 
 .PHONY: all
-all: .container ssh/id_ed25519 ;
+all: dbx ;
 
-.PHONY: install
-install: all
-	mkdir -p $(HOME)/.local/bin
-	ln -s $(PWD)/dbx $(HOME)/.local/bin/dbx
+dbx: $(OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
-.container: Containerfile dbx-init ssh/id_ed25519.pub
-	container build --pull --tag $(DBX_IMAGE) .
-	touch $@
+%.o: %.c src/dbx.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-ssh/id_% ssh/id_%.pub:
-	ssh-keygen -C "$$(id -un)@$$(hostname)" -f ssh/id_$* -N "" -t $*
+.PHONY: container
+container: container/Containerfile container/init
+	$(CONTAINER) build --tag $(IMAGE) container
+
+.PHONY: clean
+clean:
+	rm -f dbx src/*.o

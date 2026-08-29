@@ -19,10 +19,10 @@ RUN rm /etc/apt/apt.conf.d/docker-* && \
 RUN update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 # Configure SSH server
-COPY ssh/id_ed25519.pub /etc/ssh/authorized_keys
 RUN echo "StreamLocalBindUnlink yes" >> /etc/ssh/sshd_config && \
-    echo "AuthorizedKeysFile /etc/ssh/authorized_keys" >> /etc/ssh/sshd_config
+    echo "AuthorizedKeysFile /etc/ssh/authorized_keys" >> /etc/ssh/sshd_config && \
+    touch /etc/ssh/authorized_keys
 
 # Set up the entrypoint
-COPY dbx-init /sbin/init
+COPY init /sbin/init
 ENTRYPOINT ["/sbin/init"]

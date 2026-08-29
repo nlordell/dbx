@@ -1,12 +1,10 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
 
-set -euo pipefail
-
-if [[ ! -f /run/.dbxenv ]]; then
+if [ ! -f /run/.dbxenv ]; then
 	echo "ERROR: not in a devbox" >&2
 	exit 1
 fi
 
-exec tini /usr/sbin/sshd -- -D -e
+exec /usr/bin/tini /usr/sbin/sshd -- -D -e

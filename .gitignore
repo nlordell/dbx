@@ -1,7 +1,2 @@
-.container
-custom/extra-packages
-custom/post-install
-custom/skel/
-ssh/*.config
-ssh/*.known_hosts
-ssh/id_*
+dbx
+src/*.o
