@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
+
 #include <assert.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -94,6 +97,12 @@ int dummy_run(struct dbx_options *options) {
   printf("- name:    %s\n", options->name);
   printf("- image:   %s\n", options->image);
   printf("- ports:   %d:%d\n", options->ports.container, options->ports.host);
+
+  char *const ls[] = {"ls", "-la", ".", NULL};
+  int exit_code = dbx_proc_run(ls);
+  printf("- ls:   %d\n", exit_code);
+  dbx_proc_exec(ls);
+
   return EXIT_SUCCESS;
 }
 
