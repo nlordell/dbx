@@ -30,6 +30,7 @@ static void usage(FILE *output) {
       "create options:\n"
       "    -i IMAGE    image for devbox container (default: dbx-next:latest)\n"
       "    -p PORT     host port `sshd` binds to (default: 4222)\n"
+      "    -x SCRIPT   post installation script\n"
       "proxy arguments:\n"
       "    PORT[:HOST] the devbox port to proxy on the host; optionally\n"
       "                specify an alternate host port to bind to\n",
@@ -96,7 +97,9 @@ bool proxy_ports_arg(struct dbx_options *options, const char *arg) {
   return true;
 }
 
-int dummy_run(struct dbx_options *options) {
+int dummy_run(struct dbx_engine *engine, struct dbx_options const *options) {
+  (void)engine;
+
   printf("Hello, DBX!\n");
   printf("- command: %s\n", options->command);
   printf("- name:    %s\n", options->name);
@@ -109,8 +112,8 @@ int dummy_run(struct dbx_options *options) {
     return EXIT_FAILURE;
   }
 
-  char *const cmd[] = {container, "--version", NULL};
-  int exit_code = dbx_proc_run(cmd);
+  const char *const cmd[] = {container, "--version", NULL};
+  int exit_code = dbx_proc_run(cmd, DBXP_NONE);
   printf("- cmd:     %s:%d\n", container, exit_code);
   dbx_proc_exec(cmd);
 
@@ -124,14 +127,14 @@ struct command {
     const char *name;
     bool (*parse)(struct dbx_options *options, const char *arg);
   } *args;
-  int (*run)(struct dbx_options *options);
+  int (*run)(struct dbx_engine *engine, struct dbx_options const *options);
 };
 
 static struct command commands[] = {
     {
         .name = "create",
-        .optstr = "i:p:",
-        .run = dummy_run,
+        .optstr = "i:p:x:",
+        .run = dbx_create,
     },
     {
         .name = "enter",
@@ -163,12 +166,13 @@ int main(int argc, char **argv) {
   struct dbx_options options = {
       .command = "enter",
       .name = "dbx",
-      .image = "dbx-next:latest",
+      .image = "ghcr.io/nlordell/dbx:latest",
       .ports =
           {
               .container = 22,
               .host = 4222,
           },
+      .post_install = NULL,
   };
 
   if (argc > 0) {
@@ -190,9 +194,9 @@ int main(int argc, char **argv) {
     return USAGE_ERROR("unknown command '%s'", options.command);
   }
 
-  char optstr[32] = ":hn:";
+  char optstr[32] = ":hvn:";
   if (command->optstr != NULL) {
-    int len = snprintf(optstr, sizeof(optstr), ":hn:%s", command->optstr);
+    int len = snprintf(optstr, sizeof(optstr), ":hvn:%s", command->optstr);
     assert(len < (int)sizeof(optstr));
   }
 
@@ -201,6 +205,9 @@ int main(int argc, char **argv) {
     switch (opt) {
     case 'h':
       usage(stdout);
+      return EXIT_SUCCESS;
+    case 'v':
+      printf("%s 0.0.1\n", progname);
       return EXIT_SUCCESS;
     case 'n':
       options.name = optarg;
@@ -212,6 +219,9 @@ int main(int argc, char **argv) {
       if (!parse_port(optarg, &options.ports.host)) {
         return USAGE_ERROR("invalid port '%s'", optarg);
       }
+      break;
+    case 'x':
+      options.post_install = optarg;
       break;
     case ':':
       return USAGE_ERROR("missing value for -%c", optopt);
@@ -238,5 +248,13 @@ int main(int argc, char **argv) {
     return USAGE_ERROR("missing argument %s", endarg->name);
   }
 
-  return command->run(&options);
+  struct dbx_engine *engine = dbx_engine_init();
+  if (engine == NULL) {
+    dbx_printerr("failed to initialize container engine");
+    return EX_UNAVAILABLE;
+  }
+  int result = command->run(engine, &options);
+  dbx_engine_destroy(engine);
+
+  return result;
 }

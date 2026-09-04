@@ -1,12 +1,17 @@
+
+CONTAINER = $(if $(findstring Darwin,$(shell uname -s)),container,podman)
+
 CC      = cc
 CFLAGS  = -Wall -Wextra -O2
 LDFLAGS =
 
-SRCS = $(shell find src -name '*.c')
-OBJS = $(patsubst %.c,%.o,$(SRCS))
-
-CONTAINER = $(if $(findstring Darwin,$(shell uname -s)),container,podman)
-IMAGE     = dbx-next
+SRCS  = src/cmd_create.c \
+        src/engine_$(CONTAINER).c \
+        src/main.c \
+        src/proc.c \
+        src/ssh.c
+OBJS  = $(patsubst %.c,%.o,$(SRCS))
+IMAGE = ghcr.io/nlordell/dbx:latest
 
 .PHONY: all
 all: dbx ;

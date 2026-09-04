@@ -7,10 +7,27 @@ RUN touch /run/.dbxenv
 RUN rm /etc/apt/apt.conf.d/docker-* && \
     apt-get update && \
     apt-get install -y \
+        bash-completion \
+        bzip2 \
+        curl \
+        git \
+        gnupg \
+        htop \
+        less \
         locales \
+        man-db \
+        manpages \
+        nano \
+        openssh-client \
         openssh-server \
+        procps \
         sudo \
         tini \
+        trash-cli \
+        tree \
+        vim \
+        wget \
+        zip \
         && \
     apt-get clean && \
     rm -dr /var/lib/apt/lists/*

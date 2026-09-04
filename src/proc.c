@@ -75,7 +75,7 @@ bool dbx_proc_find(const char *name, char file[PATH_MAX]) {
   return found;
 }
 
-int dbx_proc_run(char *const command[]) {
+int dbx_proc_run(const char *const command[], enum dbx_proc_output out) {
   assert(command != NULL && command[0] != NULL);
 
   int result;
@@ -91,23 +91,32 @@ int dbx_proc_run(char *const command[]) {
     dbx_perror("posix_spawn_file_actions_addclose(stdin)", result);
     goto cleanup;
   }
-  result = posix_spawn_file_actions_addopen(&file_actions, STDOUT_FILENO,
-                                            _PATH_DEVNULL, O_WRONLY, 0);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_addopen(stdout)", result);
-    goto cleanup;
-  }
-  result = posix_spawn_file_actions_addopen(&file_actions, STDERR_FILENO,
-                                            _PATH_DEVNULL, O_WRONLY, 0);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_addopen(stderr)", result);
-    goto cleanup;
+
+  if ((out & DBXP_STDOUT) == 0) {
+    result = posix_spawn_file_actions_addopen(&file_actions, STDOUT_FILENO,
+                                              _PATH_DEVNULL, O_WRONLY, 0);
+    if (result != 0) {
+      dbx_perror("posix_spawn_file_actions_addopen(stdout)", result);
+      goto cleanup;
+    }
   }
 
+  if ((out & DBXP_STDERR) == 0) {
+    result = posix_spawn_file_actions_addopen(&file_actions, STDERR_FILENO,
+                                              _PATH_DEVNULL, O_WRONLY, 0);
+    if (result != 0) {
+      dbx_perror("posix_spawn_file_actions_addopen(stderr)", result);
+      goto cleanup;
+    }
+  }
+
+  // POSIX guarantees that the pointer is not modified, so the cast is safe.
+  char *const *argv = (char *const *)command;
+
   pid_t pid;
-  result = posix_spawn(&pid, command[0], &file_actions, NULL, command, environ);
+  result = posix_spawnp(&pid, command[0], &file_actions, NULL, argv, environ);
   if (result != 0) {
-    dbx_perror("posix_spawn", result);
+    dbx_perror("posix_spawnp", result);
     goto cleanup;
   }
 
@@ -133,9 +142,13 @@ cleanup:
   return exit_code;
 }
 
-bool dbx_proc_exec(char *const command[]) {
+bool dbx_proc_exec(const char *const command[]) {
   assert(command != NULL && command[0] != NULL);
-  execv(command[0], command);
+
+  // POSIX guarantees that the pointer is not modified, so the cast is safe.
+  char *const *argv = (char *const *)command;
+
+  execvp(command[0], argv);
 
   // execvp only ever returns if there was an error.
   dbx_perror("execv", errno);
