@@ -36,15 +36,20 @@ static void usage(FILE *output) {
       progname);
 }
 
-static int usage_error(const char *format, ...) {
+void dbx_printerr(const char *format, ...) {
   va_list ap;
   va_start(ap, format);
   fprintf(stderr, "%s: ", progname);
   vfprintf(stderr, format, ap);
   fprintf(stderr, "\n");
   va_end(ap);
-  return EX_USAGE;
 }
+
+void dbx_perror(const char *s, int e) {
+  dbx_printerr("%s: %s", s, strerror(e));
+}
+
+#define USAGE_ERROR(...) (dbx_printerr(__VA_ARGS__), EX_USAGE)
 
 static bool parse_port(const char *str, uint16_t *port) {
   char *end = NULL;
@@ -98,10 +103,16 @@ int dummy_run(struct dbx_options *options) {
   printf("- image:   %s\n", options->image);
   printf("- ports:   %d:%d\n", options->ports.container, options->ports.host);
 
-  char *const ls[] = {"ls", "-la", ".", NULL};
-  int exit_code = dbx_proc_run(ls);
-  printf("- ls:   %d\n", exit_code);
-  dbx_proc_exec(ls);
+  char container[PATH_MAX];
+  if (!dbx_proc_find("container", container)) {
+    fprintf(stderr, "dbx: can't find `container`.\n");
+    return EXIT_FAILURE;
+  }
+
+  char *const cmd[] = {container, "--version", NULL};
+  int exit_code = dbx_proc_run(cmd);
+  printf("- cmd:     %s:%d\n", container, exit_code);
+  dbx_proc_exec(cmd);
 
   return EXIT_SUCCESS;
 }
@@ -176,7 +187,7 @@ int main(int argc, char **argv) {
     }
   }
   if (command == NULL) {
-    return usage_error("unknown command '%s'", options.command);
+    return USAGE_ERROR("unknown command '%s'", options.command);
   }
 
   char optstr[32] = ":hn:";
@@ -199,14 +210,14 @@ int main(int argc, char **argv) {
       break;
     case 'p':
       if (!parse_port(optarg, &options.ports.host)) {
-        return usage_error("invalid port '%s'", optarg);
+        return USAGE_ERROR("invalid port '%s'", optarg);
       }
       break;
     case ':':
-      return usage_error("missing value for -%c", optopt);
+      return USAGE_ERROR("missing value for -%c", optopt);
     case '?':
     default:
-      return usage_error("unknown option -%c", optopt);
+      return USAGE_ERROR("unknown option -%c", optopt);
     }
   }
 
@@ -216,15 +227,15 @@ int main(int argc, char **argv) {
     const char *value = args[i];
     struct argument *arg = command->args ? &command->args[i] : NULL;
     if (arg == NULL || arg->parse == NULL) {
-      return usage_error("unexpected argument '%s'", value);
+      return USAGE_ERROR("unexpected argument '%s'", value);
     }
     if (!arg->parse(&options, value)) {
-      return usage_error("invalid %s value '%s'", arg->name, value);
+      return USAGE_ERROR("invalid %s value '%s'", arg->name, value);
     }
   }
   struct argument *endarg = command->args ? &command->args[nargs] : NULL;
   if (endarg != NULL && endarg->name != NULL) {
-    return usage_error("missing argument %s", endarg->name);
+    return USAGE_ERROR("missing argument %s", endarg->name);
   }
 
   return command->run(&options);

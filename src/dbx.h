@@ -4,7 +4,9 @@
 #ifndef _DBX_H_
 #define _DBX_H_
 
+#include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 struct dbx_options {
@@ -19,6 +21,10 @@ struct dbx_options {
 
 #define COUNTOF(x) ((sizeof(x)) / (sizeof(*x)))
 
+void dbx_printerr(const char *format, ...);
+void dbx_perror(const char *s, int e);
+
+bool dbx_proc_find(const char *name, char path[PATH_MAX]);
 int dbx_proc_run(char *const command[]);
 bool dbx_proc_exec(char *const command[]);
 
