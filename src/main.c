@@ -50,6 +50,17 @@ void dbx_perror(const char *s, int e) {
   dbx_printerr("%s: %s", s, strerror(e));
 }
 
+int dbx_fpath(char path[PATH_MAX], const char *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int n = vsnprintf(path, PATH_MAX, format, ap);
+  va_end(ap);
+  if (n < 0 || n >= PATH_MAX) {
+    n = -1;
+  }
+  return n;
+}
+
 #define USAGE_ERROR(...) (dbx_printerr(__VA_ARGS__), EX_USAGE)
 
 static bool parse_port(const char *str, uint16_t *port) {
@@ -112,10 +123,9 @@ int dummy_run(struct dbx_engine *engine, struct dbx_options const *options) {
     return EXIT_FAILURE;
   }
 
-  const char *const cmd[] = {container, "--version", NULL};
-  int exit_code = dbx_proc_run(cmd, DBXP_NONE);
+  int exit_code = dbx_proc_run(DBX_CMD(container, "--version"), DBXFD_NONE);
   printf("- cmd:     %s:%d\n", container, exit_code);
-  dbx_proc_exec(cmd);
+  dbx_proc_exec(DBX_CMD(container, "--version"));
 
   return EXIT_SUCCESS;
 }

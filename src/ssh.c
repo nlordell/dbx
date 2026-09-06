@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -10,34 +11,33 @@
 
 #include "dbx.h"
 
-static bool format_path(char path[PATH_MAX], const char *format, ...) {
-  va_list ap;
-  va_start(ap, format);
-  int n = vsnprintf(path, PATH_MAX, format, ap);
-  va_end(ap);
-
-  return n >= 0 && n < PATH_MAX;
-}
-
 static bool get_xdg_dir(char path[PATH_MAX], const char *env, const char *def) {
-  bool result = false;
+  int result = -1;
 
   const char *xdg = getenv(env);
   if (xdg != NULL) {
-    result = format_path(path, "%s/dbx", xdg);
+    result = dbx_fpath(path, "%s/dbx", xdg);
   } else {
     const char *home = getenv("HOME");
     if (home != NULL) {
-      result = format_path(path, "%s/%s/dbx", home, def);
+      result = dbx_fpath(path, "%s/%s/dbx", home, def);
     }
   }
 
-  return result;
+  return result >= 0;
+}
+
+static bool get_data_dir(char path[PATH_MAX]) {
+  return get_xdg_dir(path, "XDG_DATA_HOME", ".local/share");
+}
+
+static bool get_config_dir(char path[PATH_MAX]) {
+  return get_xdg_dir(path, "XDG_CONFIG_HOME", ".config");
 }
 
 static bool mkdir_p(const char *path) {
   char buffer[PATH_MAX];
-  if (!format_path(buffer, "%s/", path)) {
+  if (dbx_fpath(buffer, "%s/", path) < 0) {
     return false;
   }
 
@@ -54,15 +54,17 @@ static bool mkdir_p(const char *path) {
   return true;
 }
 
-bool dbx_ssh_init(const char *name) {
+bool dbx_ssh_init(const char *name, char ssh_pubkey[PATH_MAX]) {
+  assert(name != NULL && ssh_pubkey != NULL);
+
   char data_dir[PATH_MAX];
-  if (!get_xdg_dir(data_dir, "XDG_DATA_HOME", ".local/share") ||
-      !mkdir_p(data_dir)) {
+  if (!get_data_dir(data_dir) || !mkdir_p(data_dir)) {
     return false;
   }
 
   char ssh_id[PATH_MAX];
-  if (!format_path(ssh_id, "%s/%s.id_ed25519", data_dir, name)) {
+  if (dbx_fpath(ssh_id, "%s/%s.id_ed25519", data_dir, name) < 0 ||
+      dbx_fpath(ssh_pubkey, "%s/%s.id_ed25519.pub", data_dir, name) < 0) {
     return false;
   }
   if (unlink(ssh_id) != 0 && errno != ENOENT) {
@@ -70,16 +72,17 @@ bool dbx_ssh_init(const char *name) {
     return false;
   }
 
-  const char *const keygen[] = {"ssh-keygen", "-C", name, "-f",      ssh_id,
-                                "-N",         "",   "-t", "ed25519", NULL};
-  return dbx_proc_run(keygen, DBXP_ALL) == 0;
+  return dbx_proc_run(DBX_CMD("ssh-keygen", "-C", "dbx", "-f", ssh_id, "-N", "",
+                              "-t", "ed25519"),
+                      DBXFD_NONE) == 0;
 }
 
-bool dbx_ssh_set_hostname(const char *name, const char *hostname) {
+bool dbx_ssh_config(const char *name, const char *hostname, uint16_t port) {
+  assert(name != NULL && hostname != NULL);
+
   char data_dir[PATH_MAX];
   char config_dir[PATH_MAX];
-  if (!get_xdg_dir(data_dir, "XDG_DATA_HOME", ".local/share") ||
-      !get_xdg_dir(config_dir, "XDG_CONFIG_HOME", ".config")) {
+  if (!get_data_dir(data_dir) || !get_config_dir(config_dir)) {
     return false;
   }
 
@@ -87,10 +90,10 @@ bool dbx_ssh_set_hostname(const char *name, const char *hostname) {
   char ssh_id[PATH_MAX];
   char known_hosts[PATH_MAX];
   char user_config[PATH_MAX];
-  if (!format_path(ssh_config, "%s/%s.ssh_config", data_dir, name) ||
-      !format_path(ssh_id, "%s/%s.id_ed25519", data_dir, name) ||
-      !format_path(known_hosts, "%s/%s.known_hosts", data_dir, name) ||
-      !format_path(user_config, "%s/%s.ssh_config", config_dir, name)) {
+  if (dbx_fpath(ssh_config, "%s/%s.ssh_config", data_dir, name) < 0 ||
+      dbx_fpath(ssh_id, "%s/%s.id_ed25519", data_dir, name) < 0 ||
+      dbx_fpath(known_hosts, "%s/%s.known_hosts", data_dir, name) < 0 ||
+      dbx_fpath(user_config, "%s/%s.ssh_config", config_dir, name) < 0) {
     return false;
   }
 
@@ -103,12 +106,14 @@ bool dbx_ssh_set_hostname(const char *name, const char *hostname) {
   bool result = true;
   char format[] = "Host %s\n"
                   "\tHostName %s\n"
+                  "\tPort %d\n"
                   "\tIdentitiesOnly yes\n"
                   "\tIdentityFile \"%s\"\n"
                   "\tStrictHostKeyChecking no\n"
                   "\tUserKnownHostsFile \"%s\"\n"
                   "\tInclude \"%s\"\n";
-  int n = fprintf(f, format, name, hostname, ssh_id, known_hosts, user_config);
+  int n = fprintf(f, format, name, hostname, port, ssh_id, known_hosts,
+                  user_config);
   if (n < 0) {
     dbx_perror("fprintf(ssh-config)", errno);
     result = false;
@@ -120,4 +125,38 @@ bool dbx_ssh_set_hostname(const char *name, const char *hostname) {
   }
 
   return result;
+}
+
+bool dbx_ssh_cp(const char *name, const char *from, const char *to) {
+  assert(name != NULL && from != NULL && to != NULL);
+
+  char data_dir[PATH_MAX];
+  if (!get_data_dir(data_dir)) {
+    return false;
+  }
+
+  char ssh_config[PATH_MAX];
+  if (dbx_fpath(ssh_config, "%s/%s.ssh_config", data_dir, name) < 0) {
+    return false;
+  }
+
+  return dbx_proc_run(DBX_CMD("scp", "-F", ssh_config, from, to),
+                      DBXFD_STDERR) == 0;
+}
+
+bool dbx_ssh_sys(const char *name, const char *command) {
+  assert(name != NULL && command != NULL);
+
+  char data_dir[PATH_MAX];
+  if (!get_data_dir(data_dir)) {
+    return false;
+  }
+
+  char ssh_config[PATH_MAX];
+  if (dbx_fpath(ssh_config, "%s/%s.ssh_config", data_dir, name) < 0) {
+    return false;
+  }
+
+  return dbx_proc_run(DBX_CMD("ssh", "-F", ssh_config, name, command),
+                      DBXFD_ALL) == 0;
 }
