@@ -11,6 +11,9 @@
 #define COUNTOF(x) ((sizeof(x)) / (sizeof(*x)))
 #define HOSTNAME_MAX _POSIX_HOST_NAME_MAX
 
+int dbx_writefile(const char *file, const char *format, ...);
+int dbx_readfile(const char *file, char **contents);
+
 void dbx_printerr(const char *format, ...);
 void dbx_perror(const char *s, int e);
 int dbx_fpath(char path[PATH_MAX], const char *format, ...);
