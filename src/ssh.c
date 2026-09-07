@@ -11,60 +11,60 @@
 
 #include "dbx.h"
 
-static bool get_xdg_dir(char path[PATH_MAX], const char *env, const char *def) {
-  int result = -1;
+static int get_xdg_dir(char path[PATH_MAX], const char *env, const char *def) {
+  int result = ENOENT;
 
   const char *xdg = getenv(env);
   if (xdg != NULL) {
-    result = dbx_fpath(path, "%s/dbx", xdg);
+    result = dbx_formatpath(path, "%s/dbx", xdg);
   } else {
     const char *home = getenv("HOME");
     if (home != NULL) {
-      result = dbx_fpath(path, "%s/%s/dbx", home, def);
+      result = dbx_formatpath(path, "%s/%s/dbx", home, def);
     }
   }
 
-  return result >= 0;
+  return result;
 }
 
-static bool get_data_dir(char path[PATH_MAX]) {
+static int get_data_dir(char path[PATH_MAX]) {
   return get_xdg_dir(path, "XDG_DATA_HOME", ".local/share");
 }
 
-static bool get_config_dir(char path[PATH_MAX]) {
+static int get_config_dir(char path[PATH_MAX]) {
   return get_xdg_dir(path, "XDG_CONFIG_HOME", ".config");
 }
 
-static bool mkdir_p(const char *path) {
+static int mkdir_p(const char *path) {
   char buffer[PATH_MAX];
-  if (dbx_fpath(buffer, "%s/", path) < 0) {
-    return false;
+  int result = dbx_formatpath(buffer, "%s/", path);
+  if (result != 0) {
+    return result;
   }
 
   for (char *cursor = strchr(buffer + 1, '/'); cursor;
        cursor = strchr(cursor + 1, '/')) {
     *cursor = '\0';
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
-      dbx_perror("mkdir", errno);
-      return false;
+      return errno;
     }
     *cursor = '/';
   }
 
-  return true;
+  return 0;
 }
 
 bool dbx_ssh_init(const char *name, char ssh_pubkey[PATH_MAX]) {
   assert(name != NULL && ssh_pubkey != NULL);
 
   char data_dir[PATH_MAX];
-  if (!get_data_dir(data_dir) || !mkdir_p(data_dir)) {
+  if (get_data_dir(data_dir) || mkdir_p(data_dir)) {
     return false;
   }
 
   char ssh_id[PATH_MAX];
-  if (dbx_fpath(ssh_id, "%s/%s.id_ed25519", data_dir, name) < 0 ||
-      dbx_fpath(ssh_pubkey, "%s/%s.id_ed25519.pub", data_dir, name) < 0) {
+  if (dbx_formatpath(ssh_id, "%s/%s.id_ed25519", data_dir, name) ||
+      dbx_formatpath(ssh_pubkey, "%s/%s.id_ed25519.pub", data_dir, name)) {
     return false;
   }
   if (unlink(ssh_id) != 0 && errno != ENOENT) {
@@ -82,7 +82,7 @@ bool dbx_ssh_config(const char *name, const char *hostname, uint16_t port) {
 
   char data_dir[PATH_MAX];
   char config_dir[PATH_MAX];
-  if (!get_data_dir(data_dir) || !get_config_dir(config_dir)) {
+  if (get_data_dir(data_dir) || get_config_dir(config_dir)) {
     return false;
   }
 
@@ -90,10 +90,10 @@ bool dbx_ssh_config(const char *name, const char *hostname, uint16_t port) {
   char ssh_id[PATH_MAX];
   char known_hosts[PATH_MAX];
   char user_config[PATH_MAX];
-  if (dbx_fpath(ssh_config, "%s/%s.ssh_config", data_dir, name) < 0 ||
-      dbx_fpath(ssh_id, "%s/%s.id_ed25519", data_dir, name) < 0 ||
-      dbx_fpath(known_hosts, "%s/%s.known_hosts", data_dir, name) < 0 ||
-      dbx_fpath(user_config, "%s/%s.ssh_config", config_dir, name) < 0) {
+  if (dbx_formatpath(ssh_config, "%s/%s.ssh_config", data_dir, name) ||
+      dbx_formatpath(ssh_id, "%s/%s.id_ed25519", data_dir, name) ||
+      dbx_formatpath(known_hosts, "%s/%s.known_hosts", data_dir, name) ||
+      dbx_formatpath(user_config, "%s/%s.ssh_config", config_dir, name)) {
     return false;
   }
 
@@ -131,12 +131,12 @@ bool dbx_ssh_cp(const char *name, const char *from, const char *to) {
   assert(name != NULL && from != NULL && to != NULL);
 
   char data_dir[PATH_MAX];
-  if (!get_data_dir(data_dir)) {
+  if (get_data_dir(data_dir)) {
     return false;
   }
 
   char ssh_config[PATH_MAX];
-  if (dbx_fpath(ssh_config, "%s/%s.ssh_config", data_dir, name) < 0) {
+  if (dbx_formatpath(ssh_config, "%s/%s.ssh_config", data_dir, name)) {
     return false;
   }
 
@@ -148,12 +148,12 @@ bool dbx_ssh_sys(const char *name, const char *command) {
   assert(name != NULL && command != NULL);
 
   char data_dir[PATH_MAX];
-  if (!get_data_dir(data_dir)) {
+  if (get_data_dir(data_dir)) {
     return false;
   }
 
   char ssh_config[PATH_MAX];
-  if (dbx_fpath(ssh_config, "%s/%s.ssh_config", data_dir, name) < 0) {
+  if (dbx_formatpath(ssh_config, "%s/%s.ssh_config", data_dir, name)) {
     return false;
   }
 

@@ -6,6 +6,17 @@
 
 #include "dbx.h"
 
+int dbx_formatpath(char path[PATH_MAX], const char *format, ...) {
+  va_list ap;
+  va_start(ap, format);
+  int n = vsnprintf(path, PATH_MAX, format, ap);
+  va_end(ap);
+  if (n < 0 || n >= PATH_MAX) {
+    return ENAMETOOLONG;
+  }
+  return 0;
+}
+
 int dbx_writefile(const char *file, const char *format, ...) {
   if (file == NULL || format == NULL) {
     return EINVAL;
@@ -62,7 +73,7 @@ int dbx_readfile(const char *file, char **contents) {
         fseek(f, 0, SEEK_SET)) {
       goto error;
     }
-    if (endl >= SIZE_MAX) {
+    if ((unsigned long)endl >= SIZE_MAX) {
       errno = ENOMEM;
       goto error;
     }

@@ -14,7 +14,8 @@
 
 #include "dbx.h"
 
-static const char *progname = "dbx";
+const char *progname = "dbx";
+
 static void usage(FILE *output) {
   fprintf(
       output,
@@ -35,30 +36,6 @@ static void usage(FILE *output) {
       "    PORT[:HOST] the devbox port to proxy on the host; optionally\n"
       "                specify an alternate host port to bind to\n",
       progname);
-}
-
-void dbx_printerr(const char *format, ...) {
-  va_list ap;
-  va_start(ap, format);
-  fprintf(stderr, "%s: ", progname);
-  vfprintf(stderr, format, ap);
-  fprintf(stderr, "\n");
-  va_end(ap);
-}
-
-void dbx_perror(const char *s, int e) {
-  dbx_printerr("%s: %s", s, strerror(e));
-}
-
-int dbx_fpath(char path[PATH_MAX], const char *format, ...) {
-  va_list ap;
-  va_start(ap, format);
-  int n = vsnprintf(path, PATH_MAX, format, ap);
-  va_end(ap);
-  if (n < 0 || n >= PATH_MAX) {
-    n = -1;
-  }
-  return n;
 }
 
 #define USAGE_ERROR(...) (dbx_printerr(__VA_ARGS__), EX_USAGE)

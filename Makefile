@@ -6,7 +6,9 @@ CFLAGS  = -Wall -Wextra -O2
 LDFLAGS =
 
 SRCS  = src/cmd_create.c \
+        src/err.c \
         src/engine_$(CONTAINER).c \
+        src/fs.c \
         src/main.c \
         src/proc.c \
         src/ssh.c

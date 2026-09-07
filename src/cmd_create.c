@@ -27,7 +27,7 @@ int dbx_create(struct dbx_engine *engine, struct dbx_options const *options) {
     }
 
     char tmp[PATH_MAX];
-    if (dbx_fpath(tmp, "%s:/tmp/post-install", options->name) < 0 ||
+    if (dbx_formatpath(tmp, "%s:/tmp/post-install", options->name) ||
         !dbx_ssh_config(options->name, hostname, sshd_port) ||
         !dbx_ssh_cp(options->name, options->post_install, tmp) ||
         !dbx_ssh_sys(options->name,
