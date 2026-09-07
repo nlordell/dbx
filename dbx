@@ -1,0 +1,340 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
+# shellcheck disable=SC3043
+
+set -eu
+
+command=enter
+name=dbx
+image=ghcr.io/nlordell/dbx:latest
+port=4222
+script=
+fileonly=
+hostport=
+nargs=
+
+DATADIR="${XDG_DATA_HOME:-$HOME/.local/share}/dbx"
+CONFIGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/dbx"
+
+usage() {
+	cat <<USAGE
+usage: $0 [COMMAND] [OPTIONS...] [ARGS...]
+commands:
+    cp          copies files to and from a devbox
+    create      create a new devbox
+    enter       opens a shell in the devbox (default)
+    proxy       proxies a port to the host
+    ssh         print \`ssh\` connection flags
+    start       starts a devbox
+    stop        stops a devbox
+options:
+    -n NAME     name of the devbox container (default: $name)
+create options:
+    -i IMAGE    image for devbox container (default: $image)
+    -p PORT     host port \`sshd\` binds to (default: $port)
+    -x SCRIPT   post installation script
+ssh options:
+    -F          only print the path to the \`ssh_config\` file
+cp arguments:
+    SOURCE...   one or more source files to copy from
+    TARGET      the target to copy to
+exec arguments:
+    COMMAND...  command and arguments to execute
+proxy arguments:
+    PORT[:HOST] the devbox port to proxy on the host; optionally
+                specify an alternate host port to bind to
+USAGE
+	exit 0
+}
+
+version() {
+	echo "0.0.1"
+	exit 0
+}
+
+perror() {
+	local code="$1"
+	local msg="$2"
+	echo "$0: $msg" >&2
+	exit "$code"
+}
+
+general_error() { perror 1 "$1"; }
+usage_error() { perror 1 "$1"; }
+todo() { perror 42 "not yet implemented"; }
+
+parse_port() {
+	local port="$1"
+	if \
+		! [ "$port" -ge 1 ] 2>/dev/null || \
+		! [ "$port" -le 65535 ] 2>/dev/null
+	then
+		usage_error "invalid port '$port'"
+	fi
+	echo "$port"
+}
+
+parse_file() {
+	local file="$1"
+	if ! [ -f "$file" ] || ! [ -r "$file" ]; then
+		usage_error "cannot read '$file'"
+	fi
+	echo "$file"
+}
+
+parse_opt() {
+	local opt="$1"
+	local arg="$2"
+	case "$opt" in
+		h) usage ;;
+		v) version ;;
+		n) name="$arg" ;;
+		i) image="$arg" ;;
+		p) port="$(parse_port "$arg")" ;;
+		x) script="$(parse_file "$arg")" ;;
+		F) fileonly=t ;;
+		:) usage_error "missing argument for -$arg" ;;
+		\?) usage_error "invalid option -$arg" ;;
+	esac
+}
+
+parse_opts() {
+	nargs=$#
+
+	local optstr=":hvn:"
+	while getopts "$optstr" opt; do
+		parse_opt "$opt" "${OPTARG:-?}"
+	done
+	shift $((OPTIND-1))
+
+	if [ $# -gt 0 ]; then
+		command="$1"
+		shift
+	fi
+
+	case "$command" in
+		create) optstr="${optstr}i:p:x:" ;;
+		ssh) optstr="${optstr}F" ;;
+		cp|enter|exec|proxy|start|stop) ;;
+		*) usage_error "unkonwn command '$command'" ;;
+	esac
+
+	while getopts "$optstr" opt; do
+		parse_opt "$opt" "${OPTARG:-?}"
+	done
+	shift $((OPTIND-1))
+
+	case "$command" in
+		cp)
+			case "$#" in
+				0) usage_error "missing argument 'SOURCE'" ;;
+				1) usage_error "missing argument 'TARGET'" ;;
+				*) ;;
+			esac
+			nargs=$((nargs-$#))
+			shift $#
+			;;
+		exec)
+			case "$#" in
+				0) usage_error "missing argument 'COMMAND'" ;;
+				*) ;;
+			esac
+			nargs=$((nargs-$#))
+			shift $#
+			;;
+		proxy)
+			case "$#" in
+				0) usage_error "missing argument 'PORT'" ;;
+				*) ;;
+			esac
+			port="$(parse_port "${1%%:*}")"
+			case "$1" in
+				*:*) hostport="$(parse_port "${1#*:}")" ;;
+				*) hostport="$port"
+			esac
+			shift
+			;;
+	esac
+
+	if [ $# -gt 0 ]; then
+		usage_error "unexpected argument '$1'"
+	fi
+}
+
+ssh_id() {
+	echo "$DATADIR/$name.id_ed25519"
+}
+
+ssh_config() {
+	echo "$DATADIR/$name.ssh_config"
+}
+
+ssh_init() {
+	mkdir -p "$DATADIR" "$CONFIGDIR"
+	rm -f "$(ssh_id)"
+	ssh-keygen -C dbx -f "$(ssh_id)" -N "" -t ed25519 \
+		</dev/null >/dev/null 2>/dev/null
+}
+
+ssh_configure() {
+	local hostname; hostname="$(engine_hostname)"
+	local port; port="$(engine_port)"
+	local knownhosts="$DATADIR/$name.known_hosts"
+	local userconfig="$CONFIGDIR/$name.ssh_config"
+	cat <<SSH_CONFIG >"$(ssh_config)"
+Host $name
+	Hostname $hostname
+	Port $port
+	IdentitiesOnly yes
+	IdentityFile "$(ssh_id)"
+	StrictHostKeyChecking no
+	UserKnownHostsFile "$knownhosts"
+	Include "$userconfig"
+SSH_CONFIG
+}
+
+cmd_cp() {
+	exec scp -F "$(ssh_config)" -- "$@"
+}
+
+cmd_create() {
+	ssh_init
+	engine_create
+
+	if [ -n "$script" ]; then
+		cmd_start
+		scp -q -F "$(ssh_config)" "$script" "$name:/tmp/post-install"
+		ssh -q -F "$(ssh_config)" "$name" \
+			"chmod +x /tmp/post-install && /tmp/post-install"
+		engine_stop
+	fi
+}
+
+cmd_enter() {
+	cmd_start
+	exec ssh -q -F "$(ssh_config)" "$name"
+}
+
+cmd_exec() {
+	exec ssh -q -F "$(ssh_config)" "$name" -- "$@"
+}
+
+cmd_proxy() {
+	exec ssh -q -F "$(ssh_config)" "$name" \
+		-L "localhost:$hostport:localhost:$port" -N
+}
+
+cmd_ssh() {
+	if [ -n "$fileonly" ]; then
+		ssh_config
+	else
+		echo "-F '$(ssh_config)' $name"
+	fi
+}
+
+cmd_start() {
+	if engine_isrunning; then
+		return 0
+	fi
+
+	engine_start
+	ssh_configure
+}
+
+cmd_stop() {
+	engine_stop
+}
+
+
+if command -v container >/dev/null; then
+	engine_create() {
+		container machine create \
+			--name="$name" \
+			--no-boot \
+			--home-mount=none \
+			"$image"
+
+		# Unfortunately, there is no way to access the filesystem on the
+		# container machine while it is stopped; instead boot it up and run a
+		# small script to authorize our SSH key.
+		local pubkey; pubkey="$(cat "$(ssh_id).pub")"
+		container machine run \
+			--name="$name" \
+			--root \
+			"echo '$pubkey' > /etc/ssh/authorized_keys"
+		container machine stop "$name" >/dev/null
+	}
+
+	engine_start() {
+		# The only way to start a machine is to run a command - use one that
+		# does nothing but return `0` exit code.
+		container machine run \
+			--name="$name" \
+			--root \
+			true
+	}
+
+	engine_stop() {
+		container machine stop "$name" >/dev/null
+	}
+
+	engine_isrunning() {
+		local status; status="$(
+			container machine inspect "$name" \
+				| grep '"status"' \
+				| cut -d'"' -f4
+		)"
+		[ "$status" = "running" ]
+	}
+
+	engine_hostname() {
+		local ipaddress; ipaddress="$(
+			container machine inspect "$name" \
+				| grep '"ipAddress"' \
+				| cut -d'"' -f4
+		)"
+		if [ -z "$ipaddress" ]; then
+			general_error "failed to read devbox IP address"
+		fi
+		echo "$ipaddress"
+	}
+
+	engine_port() {
+		echo "22"
+	}
+elif command -v podman >/dev/null && command -v krun >/dev/null; then
+	engine_create() {
+		todo
+	}
+
+	engine_start() {
+		todo
+	}
+
+	engine_stop() {
+		todo
+	}
+
+	engine_isrunning() {
+		todo
+	}
+
+	engine_hostname() {
+		echo "127.0.0.1"
+	}
+
+	engine_port() {
+		todo
+	}
+else
+	general_error "no container engine installed"
+fi
+
+main() {
+	parse_opts "$@"
+	shift $nargs
+	"cmd_$command" "$@"
+}
+
+main "$@"
