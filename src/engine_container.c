@@ -11,18 +11,26 @@ struct dbx_engine {
 };
 
 struct dbx_engine *dbx_engine_init(void) {
-  struct dbx_engine *engine = calloc(1, sizeof(struct dbx_engine));
+  struct dbx_engine *engine = malloc(sizeof(struct dbx_engine));
   if (engine == NULL) {
     dbx_perror("calloc", errno);
     return NULL;
   }
 
-  if (!dbx_proc_find("container", engine->container)) {
+  int result = dbx_proc_find("container", engine->container);
+  if (result) {
+    dbx_perror("unable to find `container` executable", result);
     goto error;
   }
 
-  if (dbx_proc_run(DBX_CMD(engine->container, "system", "status"),
-                   DBXFD_NONE) != 0) {
+  int status_exit;
+  const char *const status[] = {"system", "status", NULL};
+  result = dbx_proc_run(status, DBXFD_NONE, &status_exit);
+  if (result) {
+    dbx_perror("unable to check `container` status", result);
+    goto error;
+  }
+  if (status_exit != 0) {
     dbx_printerr("container engine must started with `container system start`");
     goto error;
   }
@@ -34,41 +42,6 @@ error:
   return NULL;
 }
 
-#define PUBKEY_MAX 256
-
-static int read_pubkey(const char *file, char key[PUBKEY_MAX]) {
-  FILE *f = fopen(file, "rb");
-  if (!f) {
-    dbx_perror("fopen(ssh-pubkey)", errno);
-    return -1;
-  }
-
-  int total = 0;
-  while (total < PUBKEY_MAX) {
-    size_t n = fread(key + total, 1, PUBKEY_MAX - total, f);
-    if (n == 0) {
-      if (!feof(f)) {
-        dbx_printerr("failed to read %s", file);
-        total = -1;
-      }
-      break;
-    }
-    total += n;
-  }
-
-  if (--total >= 0 && total < PUBKEY_MAX && key[total] == '\n') {
-    key[total] = '\0';
-  } else {
-    total = -1;
-  }
-
-  if (fclose(f) != 0) {
-    dbx_perror("fclose(ssh-pubkey)", errno);
-    total = -1;
-  };
-  return total;
-}
-
 bool dbx_engine_create(struct dbx_engine *engine, const char *image,
                        const char *name, const char *ssh_pubkey,
                        uint16_t sshd_port) {
@@ -76,28 +49,40 @@ bool dbx_engine_create(struct dbx_engine *engine, const char *image,
   // on the host. We can therefore ignore the `sshd_port` setting.
   (void)sshd_port;
 
-  if (dbx_proc_run(DBX_CMD(engine->container, "machine", "create", "--name",
-                           name, "--no-boot", "--home-mount=none", image),
-                   DBXFD_STDOUT | DBXFD_STDERR) != 0) {
+  int create_exit;
+  const char *const status[] = {
+      engine->container, "machine",           "create", "--name", name,
+      "--no-boot",       "--home-mount=none", image,    NULL};
+  int result = dbx_proc_run(status, DBXFD_STDOUT | DBXFD_STDERR, &status_exit);
+  if (result) {
+    dbx_perror("unable to create `container`", result);
+    return false;
+  }
+  if (create_exit != 0) {
+    dbx_printerr("container creation failed");
     return false;
   }
 
   // Unfortunately, there is no way to access files from the container machine
   // while it is stopped; instead boot it and run a small script that can
   // authorize our SSH key.
-  char key[PUBKEY_MAX];
-  if (read_pubkey(ssh_pubkey, key) < 0) {
+  char *key;
+  result = dbx_readfile(ssh_pubkey, &key);
+  if (result) {
+    dbx_perror("unable to read SSH public key", result);
     return false;
   }
   char script[1024];
   int n = snprintf(script, sizeof(script),
                    "echo '%s' > /etc/ssh/authorized_keys", key);
   if (n < 0 || n >= (int)sizeof(script)) {
+    dbx_printerr("invalid SSH public key format");
     return false;
   }
 
   // Note that `container machine run` _requires_ `stdin` for some reason (I
   // assume it is to attach to the VM process), make sure to not close it.
+
   if (dbx_proc_run(DBX_CMD(engine->container, "machine", "run", "--name", name,
                            "--root", script),
                    DBXFD_ALL) != 0) {

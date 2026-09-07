@@ -95,8 +95,9 @@ int dummy_run(struct dbx_engine *engine, struct dbx_options const *options) {
   printf("- ports:   %d:%d\n", options->ports.container, options->ports.host);
 
   char container[PATH_MAX];
-  if (!dbx_proc_find("container", container)) {
-    fprintf(stderr, "dbx: can't find `container`.\n");
+  int result = dbx_proc_find("container", container);
+  if (result) {
+    dbx_perror("Can't find `container`", result);
     return EXIT_FAILURE;
   }
 

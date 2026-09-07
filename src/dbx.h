@@ -6,6 +6,7 @@
 
 #include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define COUNTOF(x) ((sizeof(x)) / (sizeof(*x)))
@@ -26,11 +27,12 @@ enum dbx_proc_fds {
   DBXFD_STDERR = 4,
   DBXFD_ALL = 7,
 };
-bool dbx_proc_find(const char *name, char path[PATH_MAX]);
-int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds);
-int dbx_proc_output(const char *const command[], char *out, int outlen);
-bool dbx_proc_exec(const char *const command[]);
-#define DBX_CMD(...) ((const char *const[]){__VA_ARGS__, NULL})
+int dbx_proc_find2(const char *name, char path[PATH_MAX]);
+int dbx_proc_run2(const char *const command[], enum dbx_proc_fds fds,
+                 int *exit_code);
+int dbx_proc_output2(const char *const command[], int *exit_code, char **out,
+                    size_t *outlen);
+int dbx_proc_exec2(const char *const command[]);
 
 bool dbx_ssh_init(const char *name, char ssh_pubkey[PATH_MAX]);
 bool dbx_ssh_config(const char *name, const char *hostname, uint16_t port);

@@ -44,14 +44,15 @@ static const char *next_path_segment(char **path) {
   return segment;
 }
 
-bool dbx_proc_find(const char *name, char file[PATH_MAX]) {
-  assert(name != NULL && name[0] != '\0' && strchr(name, '/') == NULL &&
-         file != NULL);
+int dbx_proc_find(const char *name, char file[PATH_MAX]) {
+  if (name == NULL || name[0] == '\0' || strchr(name, '/') != NULL ||
+      file == NULL) {
+    return EINVAL;
+  }
 
   char *path = strdup(get_path());
   if (path == NULL) {
-    dbx_perror("strdup", ENOMEM);
-    return false;
+    return ENOMEM;
   }
 
   char *pos = path;
@@ -59,8 +60,7 @@ bool dbx_proc_find(const char *name, char file[PATH_MAX]) {
   for (const char *dir = next_path_segment(&pos); dir != NULL;
        dir = next_path_segment(&pos)) {
     char candidate[PATH_MAX];
-    int n = snprintf(candidate, sizeof(candidate), "%s/%s", dir, name);
-    if (n < 0 || n >= (int)sizeof(candidate)) {
+    if (dbx_formatpath(candidate, "%s/%s", dir, name)) {
       continue;
     }
 
@@ -77,11 +77,6 @@ bool dbx_proc_find(const char *name, char file[PATH_MAX]) {
 }
 
 static char **dup_argv(const char *const command[]) {
-  if (command == NULL || command[0] == NULL) {
-    dbx_perror("dup_argv", EINVAL);
-    return NULL;
-  }
-
   size_t count = 0;
   size_t size = 0;
   for (; command[count] != NULL; count++) {
@@ -92,7 +87,6 @@ static char **dup_argv(const char *const command[]) {
   // for the extra NULL pointer at the end of the array.
   char **argv = malloc((count + 1) * sizeof(char *) + size);
   if (argv == NULL) {
-    dbx_perror("malloc", ENOMEM);
     return NULL;
   }
 
@@ -106,18 +100,22 @@ static char **dup_argv(const char *const command[]) {
   return argv;
 }
 
-int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds) {
-  int exit_code = -1;
+int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds,
+                 int *exit_code) {
+  if (command == NULL || command[0] == NULL || exit_code == NULL) {
+    return EINVAL;
+  }
 
+  int result = 0;
   char **argv = dup_argv(command);
   if (argv == NULL) {
+    result = ENOMEM;
     goto exit;
   }
 
   posix_spawn_file_actions_t file_actions;
-  int result = posix_spawn_file_actions_init(&file_actions);
+  result = posix_spawn_file_actions_init(&file_actions);
   if (result != 0) {
-    dbx_perror("spawn_file_actions_init", result);
     goto cleanup_argv;
   }
 
@@ -125,7 +123,6 @@ int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds) {
     result = posix_spawn_file_actions_addopen(&file_actions, STDIN_FILENO,
                                               _PATH_DEVNULL, O_RDONLY, 0);
     if (result != 0) {
-      dbx_perror("posix_spawn_file_actions_addopen(stdin)", result);
       goto cleanup_fa;
     }
   }
@@ -134,7 +131,6 @@ int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds) {
     result = posix_spawn_file_actions_addopen(&file_actions, STDOUT_FILENO,
                                               _PATH_DEVNULL, O_WRONLY, 0);
     if (result != 0) {
-      dbx_perror("posix_spawn_file_actions_addopen(stdout)", result);
       goto cleanup_fa;
     }
   }
@@ -143,7 +139,6 @@ int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds) {
     result = posix_spawn_file_actions_addopen(&file_actions, STDERR_FILENO,
                                               _PATH_DEVNULL, O_WRONLY, 0);
     if (result != 0) {
-      dbx_perror("posix_spawn_file_actions_addopen(stderr)", result);
       goto cleanup_fa;
     }
   }
@@ -151,7 +146,6 @@ int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds) {
   pid_t pid;
   result = posix_spawnp(&pid, argv[0], &file_actions, NULL, argv, environ);
   if (result != 0) {
-    dbx_perror("posix_spawnp", result);
     goto cleanup_fa;
   }
 
@@ -161,113 +155,156 @@ int dbx_proc_run(const char *const command[], enum dbx_proc_fds fds) {
       continue;
     }
 
-    dbx_perror("waitpid", errno);
+    result = errno;
     goto cleanup_fa;
   }
 
   if (WIFEXITED(status)) {
-    exit_code = WEXITSTATUS(status);
+    *exit_code = WEXITSTATUS(status);
   } else if (WIFSIGNALED(status)) {
-    exit_code = 128 + WTERMSIG(status);
+    *exit_code = 128 + WTERMSIG(status);
+  } else {
+    *exit_code = -1;
   }
 
-cleanup_fa:
-  result = posix_spawn_file_actions_destroy(&file_actions);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_destroy", result);
+cleanup_fa:;
+  int destroy_result = posix_spawn_file_actions_destroy(&file_actions);
+  if (result == 0) {
+    result = destroy_result;
   }
 
 cleanup_argv:
   free(argv);
 
 exit:
-  return exit_code;
+  return result;
 }
 
-int dbx_proc_output(const char *const command[], char *out, int outlen) {
-  if (out == NULL || outlen < 1) {
-    return -1;
+static int read_all(int fd, char **out, size_t *outlen) {
+  size_t cap = 4096;
+  size_t len = 0;
+  char *buf = malloc(cap);
+  if (buf == NULL) {
+    return ENOMEM;
   }
 
-  size_t total = 0;
-  int exit_code = -1;
+  for (;;) {
+    if (len == cap) {
+      size_t new_cap = cap * 2;
+      if (new_cap >= SSIZE_MAX || new_cap <= cap) {
+        free(buf);
+        return ENOMEM;
+      }
 
-  char **argv = dup_argv(command);
-  if (argv == NULL) {
-    goto exit;
-  }
+      char *new_buf = realloc(buf, new_cap);
+      if (new_buf == NULL) {
+        free(buf);
+        return ENOMEM;
+      }
 
-  int pipe_fds[2];
-  if (pipe(pipe_fds) != 0) {
-    dbx_perror("pipe", errno);
-    goto cleanup_argv;
-  }
-  int read_fd = pipe_fds[0];
-  int write_fd = pipe_fds[1];
+      buf = new_buf;
+      cap = new_cap;
+    }
 
-  if (write_fd == STDOUT_FILENO) {
-    dbx_printerr("unexpected pipe file descriptor values");
-    goto cleanup_fds;
-  }
-
-  posix_spawn_file_actions_t file_actions;
-  int result = posix_spawn_file_actions_init(&file_actions);
-  if (result != 0) {
-    dbx_perror("spawn_file_actions_init", result);
-    goto cleanup_fds;
-  }
-
-  result = posix_spawn_file_actions_addclose(&file_actions, read_fd);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_addclose(read_fd)", result);
-    goto cleanup_fa;
-  }
-
-  result =
-      posix_spawn_file_actions_adddup2(&file_actions, write_fd, STDOUT_FILENO);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_adddup2(stdout)", result);
-    goto cleanup_fa;
-  }
-
-  result = posix_spawn_file_actions_addclose(&file_actions, write_fd);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_addclose(write_fd)", result);
-    goto cleanup_fa;
-  }
-
-  pid_t pid;
-  result = posix_spawnp(&pid, command[0], &file_actions, NULL, argv, environ);
-  if (result != 0) {
-    dbx_perror("posix_spawnp", result);
-    goto cleanup_fa;
-  }
-
-  if (close(write_fd) != 0) {
-    dbx_perror("close", errno);
-  }
-  write_fd = -1;
-
-  size_t limit = outlen - 1;
-  while (total < limit) {
-    ssize_t n = read(read_fd, out + total, limit - total);
+    ssize_t n = read(fd, buf + len, cap - len);
     if (n == 0) {
       break;
     } else if (n < 0) {
       if (errno == EINTR) {
         continue;
       }
-      dbx_perror("read", errno);
-      result = errno;
-      goto cleanup_pid;
+
+      int result = errno;
+      free(buf);
+      return result;
     }
-    total += (size_t)n;
+
+    len += (size_t)n;
   }
-  out[total] = '\0';
+
+  char *final = realloc(buf, len + 1);
+  if (!final) {
+    free(buf);
+    return ENOMEM;
+  }
+  final[len] = '\0';
+
+  *out = final;
+  *outlen = len;
+  return 0;
+}
+
+int dbx_proc_output(const char *const command[], int *exit_code, char **out,
+                    size_t *outlen) {
+  if (command == NULL || command[0] == NULL || exit_code == NULL ||
+      out == NULL || outlen == NULL) {
+    return EINVAL;
+  }
+
+  int result = 0;
+  char *buf = NULL;
+
+  char **argv = dup_argv(command);
+  if (argv == NULL) {
+    result = ENOMEM;
+    goto exit;
+  }
+
+  int pipe_fds[2];
+  if (pipe(pipe_fds) != 0) {
+    result = errno;
+    goto cleanup_argv;
+  }
+  int read_fd = pipe_fds[0];
+  int write_fd = pipe_fds[1];
+
+  if (write_fd == STDOUT_FILENO) {
+    result = EINVAL;
+    goto cleanup_fds;
+  }
+
+  posix_spawn_file_actions_t file_actions;
+  result = posix_spawn_file_actions_init(&file_actions);
+  if (result != 0) {
+    goto cleanup_fds;
+  }
+
+  result = posix_spawn_file_actions_addclose(&file_actions, read_fd);
+  if (result != 0) {
+    goto cleanup_fa;
+  }
+
+  result =
+      posix_spawn_file_actions_adddup2(&file_actions, write_fd, STDOUT_FILENO);
+  if (result != 0) {
+    goto cleanup_fa;
+  }
+
+  result = posix_spawn_file_actions_addclose(&file_actions, write_fd);
+  if (result != 0) {
+    goto cleanup_fa;
+  }
+
+  pid_t pid;
+  result = posix_spawnp(&pid, command[0], &file_actions, NULL, argv, environ);
+  if (result != 0) {
+    goto cleanup_fa;
+  }
+
+  if (close(write_fd) != 0) {
+    result = errno;
+  }
+  write_fd = -1;
+  if (result != 0) {
+    goto cleanup_pid;
+  }
+
+  size_t buflen;
+  result = read_all(read_fd, &buf, &buflen);
 
 cleanup_pid:
-  if (close(read_fd) != 0) {
-    dbx_perror("close", errno);
+  if (close(read_fd) != 0 && result == 0) {
+    result = errno;
   }
   read_fd = -1;
 
@@ -277,51 +314,60 @@ cleanup_pid:
       continue;
     }
 
-    dbx_perror("waitpid", errno);
+    if (result == 0) {
+      result = errno;
+    }
     goto cleanup_fa;
   }
 
+cleanup_fa:;
+  int destroy_result = posix_spawn_file_actions_destroy(&file_actions);
   if (result == 0) {
-    if (WIFEXITED(status)) {
-      exit_code = WEXITSTATUS(status);
-    } else if (WIFSIGNALED(status)) {
-      exit_code = 128 + WTERMSIG(status);
-    }
-  }
-
-cleanup_fa:
-  result = posix_spawn_file_actions_destroy(&file_actions);
-  if (result != 0) {
-    dbx_perror("posix_spawn_file_actions_destroy", result);
+    result = destroy_result;
   }
 
 cleanup_fds:
-  if (write_fd >= 0 && close(write_fd) != 0) {
-    dbx_perror("close", errno);
+  if (write_fd >= 0 && close(write_fd) != 0 && result == 0) {
+    result = errno;
   }
-  if (read_fd >= 0 && close(read_fd) != 0) {
-    dbx_perror("close", errno);
+  if (read_fd >= 0 && close(read_fd) != 0 && result == 0) {
+    result = errno;
   }
 
 cleanup_argv:
   free(argv);
 
 exit:
-  out[total] = '\0';
-  return exit_code;
+  if (result == 0) {
+    if (WIFEXITED(status)) {
+      *exit_code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+      *exit_code = 128 + WTERMSIG(status);
+    } else {
+      *exit_code = -1;
+    }
+    *out = buf;
+    *outlen = buflen;
+  } else {
+    free(buf);
+  }
+
+  return result;
 }
 
-bool dbx_proc_exec(const char *const command[]) {
+int dbx_proc_exec(const char *const command[]) {
+  if (command == NULL || command[0] == NULL) {
+    return EINVAL;
+  }
+
   char **argv = dup_argv(command);
   if (argv == NULL) {
-    return false;
+    return ENOMEM;
   }
 
   execvp(argv[0], argv);
 
   // execvp only ever returns if there was an error.
-  dbx_perror("execv", errno);
-
   free(argv);
-  return false;
+  return errno;
 }
