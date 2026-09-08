@@ -70,9 +70,9 @@ todo() { perror 42 "not yet implemented"; }
 
 parse_port() {
 	local port="$1"
-	if \
-		! [ "$port" -ge 1 ] 2>/dev/null || \
-		! [ "$port" -le 65535 ] 2>/dev/null
+	if
+		! [ "$port" -ge 1 ] 2>/dev/null ||
+			! [ "$port" -le 65535 ] 2>/dev/null
 	then
 		usage_error "invalid port '$port'"
 	fi
@@ -90,17 +90,18 @@ parse_file() {
 parse_opt() {
 	local opt="$1"
 	local arg="$2"
+
 	case "$opt" in
-		h) usage ;;
-		v) version ;;
-		n) name="$arg" ;;
-		i) image="$arg" ;;
-		p) port="$(parse_port "$arg")" ;;
-		x) script="$(parse_file "$arg")" ;;
-		s) autostart=t ;;
-		F) fileonly=t ;;
-		:) usage_error "missing argument for -$arg" ;;
-		\?) usage_error "invalid option -$arg" ;;
+	h) usage ;;
+	v) version ;;
+	n) name="$arg" ;;
+	i) image="$arg" ;;
+	p) port="$(parse_port "$arg")" ;;
+	x) script="$(parse_file "$arg")" ;;
+	s) autostart=t ;;
+	F) fileonly=t ;;
+	:) usage_error "missing argument for -$arg" ;;
+	\?) usage_error "invalid option -$arg" ;;
 	esac
 }
 
@@ -111,7 +112,7 @@ parse_opts() {
 	while getopts "$optstr" opt; do
 		parse_opt "$opt" "${OPTARG:-?}"
 	done
-	shift $((OPTIND-1))
+	shift $((OPTIND - 1))
 
 	if [ $# -gt 0 ]; then
 		command="$1"
@@ -121,48 +122,52 @@ parse_opts() {
 	fi
 
 	case "$command" in
-		create) optstr="${optstr}i:p:x:" ;;
-		cp|enter|exec|proxy) optstr="${optstr}s" ;;
-		ssh) optstr="${optstr}F" ;;
-		start|stop) ;;
-		*) usage_error "unkonwn command '$command'" ;;
+	create) optstr="${optstr}i:p:x:" ;;
+	cp | enter | exec | proxy) optstr="${optstr}s" ;;
+	ssh) optstr="${optstr}F" ;;
+	start | stop) ;;
+	*) usage_error "unkonwn command '$command'" ;;
 	esac
 
 	while getopts "$optstr" opt; do
 		parse_opt "$opt" "${OPTARG:-?}"
 	done
-	shift $((OPTIND-1))
+	shift $((OPTIND - 1))
 
 	case "$command" in
-		cp)
-			case "$#" in
-				0) usage_error "missing argument 'SOURCE'" ;;
-				1) usage_error "missing argument 'TARGET'" ;;
-				*) ;;
-			esac
-			nargs=$((nargs-$#))
-			shift $#
-			;;
-		exec)
-			case "$#" in
-				0) usage_error "missing argument 'COMMAND'" ;;
-				*) ;;
-			esac
-			nargs=$((nargs-$#))
-			shift $#
-			;;
-		proxy)
-			case "$#" in
-				0) usage_error "missing argument 'PORT'" ;;
-				*) ;;
-			esac
-			port="$(parse_port "${1%%:*}")"
-			case "$1" in
-				*:*) hostport="$(parse_port "${1#*:}")" ;;
-				*) hostport="$port"
-			esac
-			shift
-			;;
+	cp)
+		case "$#" in
+		0) usage_error "missing argument 'SOURCE'" ;;
+		1) usage_error "missing argument 'TARGET'" ;;
+		*) ;;
+		esac
+
+		nargs=$((nargs - $#))
+		shift $#
+		;;
+	exec)
+		case "$#" in
+		0) usage_error "missing argument 'COMMAND'" ;;
+		*) ;;
+		esac
+
+		nargs=$((nargs - $#))
+		shift $#
+		;;
+	proxy)
+		case "$#" in
+		0) usage_error "missing argument 'PORT'" ;;
+		*) ;;
+		esac
+
+		port="$(parse_port "${1%%:*}")"
+		case "$1" in
+		*:*) hostport="$(parse_port "${1#*:}")" ;;
+		*) hostport="$port" ;;
+		esac
+
+		shift
+		;;
 	esac
 
 	if [ $# -gt 0 ]; then
@@ -186,10 +191,13 @@ ssh_init() {
 }
 
 ssh_configure() {
-	local hostname; hostname="$(engine_hostname)"
-	local port; port="$(engine_port)"
+	local hostname
+	local port
 	local knownhosts="$DATADIR/$name.known_hosts"
 	local userconfig="$CONFIGDIR/$name.ssh_config"
+
+	hostname="$(engine_hostname)"
+	port="$(engine_port)"
 	cat <<SSH_CONFIG >"$(ssh_config)"
 Host $name
 	Hostname $hostname
@@ -265,7 +273,6 @@ cmd_stop() {
 	engine_stop
 }
 
-
 if command -v container >/dev/null; then
 	engine_create() {
 		container machine create \
@@ -277,7 +284,8 @@ if command -v container >/dev/null; then
 		# Unfortunately, there is no way to access the filesystem on the
 		# container machine while it is stopped; instead boot it up and run a
 		# small script to authorize our SSH key.
-		local pubkey; pubkey="$(cat "$(ssh_id).pub")"
+		local pubkey
+		pubkey="$(cat "$(ssh_id).pub")"
 		container machine run \
 			--name="$name" \
 			--root \
@@ -299,19 +307,21 @@ if command -v container >/dev/null; then
 	}
 
 	engine_isrunning() {
-		local status; status="$(
-			container machine inspect "$name" \
-				| grep '"status"' \
-				| cut -d'"' -f4
+		local status
+		status="$(
+			container machine inspect "$name" |
+				grep '"status"' |
+				cut -d'"' -f4
 		)"
 		[ "$status" = "running" ]
 	}
 
 	engine_hostname() {
-		local ipaddress; ipaddress="$(
-			container machine inspect "$name" \
-				| grep '"ipAddress"' \
-				| cut -d'"' -f4
+		local ipaddress
+		ipaddress="$(
+			container machine inspect "$name" |
+				grep '"ipAddress"' |
+				cut -d'"' -f4
 		)"
 		if [ -z "$ipaddress" ]; then
 			general_error "failed to read devbox IP address"
