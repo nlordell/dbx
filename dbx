@@ -10,6 +10,7 @@ name=dbx
 image=ghcr.io/nlordell/dbx:latest
 port=4222
 script=
+autostart=
 fileonly=
 hostport=
 nargs=
@@ -23,17 +24,20 @@ usage: $0 [COMMAND] [OPTIONS...] [ARGS...]
 commands:
     cp          copies files to and from a devbox
     create      create a new devbox
-    enter       opens a shell in the devbox (default)
-    proxy       proxies a port to the host
-    ssh         print \`ssh\` connection flags
+    enter       opens a shell in a devbox (default)
+    exec        runs a command in a devbox
+    proxy       proxies a devbox port to the host
+    ssh         print devbox \`ssh\` connection flags
     start       starts a devbox
     stop        stops a devbox
 options:
     -n NAME     name of the devbox container (default: $name)
 create options:
-    -i IMAGE    image for devbox container (default: $image)
+    -i IMAGE    devbox container image (default: $image)
     -p PORT     host port \`sshd\` binds to (default: $port)
     -x SCRIPT   post installation script
+cp/enter/exec/proxy options:
+    -s          start the devbox before entering
 ssh options:
     -F          only print the path to the \`ssh_config\` file
 cp arguments:
@@ -93,6 +97,7 @@ parse_opt() {
 		i) image="$arg" ;;
 		p) port="$(parse_port "$arg")" ;;
 		x) script="$(parse_file "$arg")" ;;
+		s) autostart=t ;;
 		F) fileonly=t ;;
 		:) usage_error "missing argument for -$arg" ;;
 		\?) usage_error "invalid option -$arg" ;;
@@ -111,12 +116,15 @@ parse_opts() {
 	if [ $# -gt 0 ]; then
 		command="$1"
 		shift
+	else
+		autostart=t
 	fi
 
 	case "$command" in
 		create) optstr="${optstr}i:p:x:" ;;
+		cp|enter|exec|proxy) optstr="${optstr}s" ;;
 		ssh) optstr="${optstr}F" ;;
-		cp|enter|exec|proxy|start|stop) ;;
+		start|stop) ;;
 		*) usage_error "unkonwn command '$command'" ;;
 	esac
 
@@ -195,6 +203,9 @@ SSH_CONFIG
 }
 
 cmd_cp() {
+	if [ -n "$autostart" ]; then
+		cmd_start
+	fi
 	exec scp -F "$(ssh_config)" -- "$@"
 }
 
@@ -212,15 +223,23 @@ cmd_create() {
 }
 
 cmd_enter() {
-	cmd_start
+	if [ -n "$autostart" ]; then
+		cmd_start
+	fi
 	exec ssh -q -F "$(ssh_config)" "$name"
 }
 
 cmd_exec() {
+	if [ -n "$autostart" ]; then
+		cmd_start
+	fi
 	exec ssh -q -F "$(ssh_config)" "$name" -- "$@"
 }
 
 cmd_proxy() {
+	if [ -n "$autostart" ]; then
+		cmd_start
+	fi
 	exec ssh -q -F "$(ssh_config)" "$name" \
 		-L "localhost:$hostport:localhost:$port" -N
 }
