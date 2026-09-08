@@ -1,20 +1,20 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-only
 # SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
-# shellcheck disable=SC3043
 
-set -eu
+set -euo pipefail
 
 command=enter
-name=dbx
+name="${DBX_NAME:-dbx}"
 image=ghcr.io/nlordell/dbx:latest
 port=4222
 script=
 autostart=
 fileonly=
-hostport=
-nargs=
+regenerate=
+args=()
 
+OS="$(uname -s)"
 DATADIR="${XDG_DATA_HOME:-$HOME/.local/share}/dbx"
 CONFIGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/dbx"
 
@@ -40,6 +40,7 @@ cp/enter/exec/proxy options:
     -s          start the devbox before entering
 ssh options:
     -F          only print the path to the \`ssh_config\` file
+    -g          re-generate the SSH configuration
 cp arguments:
     SOURCE...   one or more source files to copy from
     TARGET      the target to copy to
@@ -57,9 +58,16 @@ version() {
 	exit 0
 }
 
+has_commands() {
+	for cmd in "$@"; do
+		command -v "$cmd" >/dev/null
+	done
+}
+
 perror() {
 	local code="$1"
 	local msg="$2"
+
 	echo "$0: $msg" >&2
 	exit "$code"
 }
@@ -70,10 +78,10 @@ todo() { perror 42 "not yet implemented"; }
 
 parse_port() {
 	local port="$1"
-	if
-		! [ "$port" -ge 1 ] 2>/dev/null ||
-			! [ "$port" -le 65535 ] 2>/dev/null
-	then
+
+	if ! {
+		[ "$port" -ge 1 ] && [ "$port" -le 65535 ]
+	} 2>/dev/null; then
 		usage_error "invalid port '$port'"
 	fi
 	echo "$port"
@@ -81,6 +89,7 @@ parse_port() {
 
 parse_file() {
 	local file="$1"
+
 	if ! [ -f "$file" ] || ! [ -r "$file" ]; then
 		usage_error "cannot read '$file'"
 	fi
@@ -100,15 +109,16 @@ parse_opt() {
 	x) script="$(parse_file "$arg")" ;;
 	s) autostart=t ;;
 	F) fileonly=t ;;
+	g) regenerate=t ;;
 	:) usage_error "missing argument for -$arg" ;;
 	\?) usage_error "invalid option -$arg" ;;
 	esac
 }
 
 parse_opts() {
-	nargs=$#
-
 	local optstr=":hvn:"
+
+	OPTIND=1
 	while getopts "$optstr" opt; do
 		parse_opt "$opt" "${OPTARG:-?}"
 	done
@@ -124,11 +134,12 @@ parse_opts() {
 	case "$command" in
 	create) optstr="${optstr}i:p:x:" ;;
 	cp | enter | exec | proxy) optstr="${optstr}s" ;;
-	ssh) optstr="${optstr}F" ;;
+	ssh) optstr="${optstr}Fg" ;;
 	start | stop) ;;
-	*) usage_error "unkonwn command '$command'" ;;
+	*) usage_error "unknown command '$command'" ;;
 	esac
 
+	OPTIND=1
 	while getopts "$optstr" opt; do
 		parse_opt "$opt" "${OPTARG:-?}"
 	done
@@ -139,33 +150,38 @@ parse_opts() {
 		case "$#" in
 		0) usage_error "missing argument 'SOURCE'" ;;
 		1) usage_error "missing argument 'TARGET'" ;;
-		*) ;;
 		esac
 
-		nargs=$((nargs - $#))
+		# We want to make sure that there are no `host:...` paths that are not
+		# for the devbox, and make `:...` paths short-hand for remote paths.
+		for f in "$@"; do
+			case "$f" in
+			"$name":*) ;;
+			:*) f="$name$f" ;;
+			*:*) usage_error "invalid path specifier '$f'" ;;
+			esac
+			args+=("$f")
+		done
 		shift $#
 		;;
 	exec)
 		case "$#" in
 		0) usage_error "missing argument 'COMMAND'" ;;
-		*) ;;
 		esac
 
-		nargs=$((nargs - $#))
+		args=("$@")
 		shift $#
 		;;
 	proxy)
 		case "$#" in
 		0) usage_error "missing argument 'PORT'" ;;
-		*) ;;
 		esac
 
-		port="$(parse_port "${1%%:*}")"
+		args=("$(parse_port "${1%%:*}")")
 		case "$1" in
-		*:*) hostport="$(parse_port "${1#*:}")" ;;
-		*) hostport="$port" ;;
+		*:*) args+=("$(parse_port "${1#*:}")") ;;
+		*) args+=("${args[0]}") ;;
 		esac
-
 		shift
 		;;
 	esac
@@ -185,7 +201,7 @@ ssh_config() {
 
 ssh_init() {
 	mkdir -p "$DATADIR" "$CONFIGDIR"
-	rm -f "$(ssh_id)"
+	rm -f "$(ssh_id)" "$(ssh_id).pub"
 	ssh-keygen -C dbx -f "$(ssh_id)" -N "" -t ed25519 \
 		</dev/null >/dev/null 2>/dev/null
 }
@@ -211,9 +227,7 @@ SSH_CONFIG
 }
 
 cmd_cp() {
-	if [ -n "$autostart" ]; then
-		cmd_start
-	fi
+	cmd_exec exit
 	exec scp -F "$(ssh_config)" -- "$@"
 }
 
@@ -231,28 +245,35 @@ cmd_create() {
 }
 
 cmd_enter() {
-	if [ -n "$autostart" ]; then
-		cmd_start
-	fi
-	exec ssh -q -F "$(ssh_config)" "$name"
+	cmd_exec
 }
 
 cmd_exec() {
 	if [ -n "$autostart" ]; then
 		cmd_start
+	elif ! engine_isrunning; then
+		general_error 'devbox is not started'
 	fi
 	exec ssh -q -F "$(ssh_config)" "$name" -- "$@"
 }
 
 cmd_proxy() {
+	local devboxport="$1"
+	local hostport="$2"
+
 	if [ -n "$autostart" ]; then
 		cmd_start
 	fi
-	exec ssh -q -F "$(ssh_config)" "$name" \
-		-L "localhost:$hostport:localhost:$port" -N
+	exec ssh -q -F "$(ssh_config)" \
+		-L "localhost:$hostport:localhost:$devboxport" -N \
+		"$name"
 }
 
 cmd_ssh() {
+	if [ -n "$regenerate" ]; then
+		ssh_configure
+	fi
+
 	if [ -n "$fileonly" ]; then
 		ssh_config
 	else
@@ -273,8 +294,12 @@ cmd_stop() {
 	engine_stop
 }
 
-if command -v container >/dev/null; then
+if [ "$OS" = "Darwin" ] && has_commands container; then
 	engine_create() {
+		# The container engine does not bind to a host port with `sshd`, and so
+		# it ignores the option.
+		: "$port"
+
 		container machine create \
 			--name="$name" \
 			--no-boot \
@@ -284,13 +309,11 @@ if command -v container >/dev/null; then
 		# Unfortunately, there is no way to access the filesystem on the
 		# container machine while it is stopped; instead boot it up and run a
 		# small script to authorize our SSH key.
-		local pubkey
-		pubkey="$(cat "$(ssh_id).pub")"
 		container machine run \
 			--name="$name" \
 			--root \
-			"echo '$pubkey' > /etc/ssh/authorized_keys"
-		container machine stop "$name" >/dev/null
+			"echo '$(cat "$(ssh_id).pub")' > /etc/ssh/authorized_keys"
+		engine_stop
 	}
 
 	engine_start() {
@@ -308,6 +331,7 @@ if command -v container >/dev/null; then
 
 	engine_isrunning() {
 		local status
+
 		status="$(
 			container machine inspect "$name" |
 				grep '"status"' |
@@ -318,6 +342,7 @@ if command -v container >/dev/null; then
 
 	engine_hostname() {
 		local ipaddress
+
 		ipaddress="$(
 			container machine inspect "$name" |
 				grep '"ipAddress"' |
@@ -332,7 +357,7 @@ if command -v container >/dev/null; then
 	engine_port() {
 		echo "22"
 	}
-elif command -v podman >/dev/null && command -v krun >/dev/null; then
+elif [ "$OS" = "Linux" ] && has_commands podman krun; then
 	engine_create() {
 		todo
 	}
@@ -362,8 +387,7 @@ fi
 
 main() {
 	parse_opts "$@"
-	shift $nargs
-	"cmd_$command" "$@"
+	"cmd_$command" ${args[@]+"${args[@]}"}
 }
 
 main "$@"

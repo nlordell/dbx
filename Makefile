@@ -23,3 +23,8 @@ install: dbx
 .PHONY: container
 container: container/Containerfile container/init
 	$(CONTAINER) build --tag $(IMAGE) container
+
+.PHONY: check
+check: dbx
+	shellcheck dbx
+	shfmt -d dbx
