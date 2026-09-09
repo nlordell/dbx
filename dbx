@@ -516,6 +516,7 @@ CONFIG
 			--name="$name" \
 			--env="KRUN_INIT_PID1=1" \
 			--hostname="$name" \
+			--network="pasta:--no-map-gw,--map-guest-addr,none" \
 			--publish="127.0.0.1::22" \
 			"$image" \
 			>/dev/null
