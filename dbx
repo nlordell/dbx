@@ -7,9 +7,11 @@ set -euo pipefail
 command=enter
 name="dbx"
 image=ghcr.io/nlordell/dbx:latest
-port=4222
+skel=
 script=
 asroot=
+preserve=
+recursive=
 autostart=
 fileonly=
 regenerate=
@@ -28,16 +30,20 @@ commands:
     enter       opens a shell in a devbox (default: \`dbx enter -s\`)
     exec        executes a command in a devbox
     proxy       proxies a devbox port to the host
-    ssh         print devbox \`ssh\` connection flags
+    ssh         print devbox \`ssh\` command
     start       starts a devbox
     stop        stops a devbox
 options:
     -n NAME     name of the devbox container (default: $name)
+cp options:
+    -R          copy files as root instead of the development user
+    -p          preserve file times and mode bits
+    -r          copy recursively
 create options:
     -i IMAGE    devbox container image (default: $image)
-    -p PORT     host port \`sshd\` binds to (default: $port)
-    -x SCRIPT   post installation script
-cp/enter/exec options:
+    -k SKEL     overlay skeleton directory onto the user's home
+    -x SCRIPT   override post-installation script
+enter/exec options:
     -R          connect as root instead of the development user
     -s          start the devbox if necessary
 ssh options:
@@ -111,21 +117,39 @@ parse_image() {
 parse_port() {
 	local port="$1"
 
-	if ! {
-		[ "$port" -ge 1 ] && [ "$port" -le 65535 ]
-	} 2>/dev/null; then
+	case "$port" in
+	"" | [!1-9]* | *[!0-9]* | ??????*)
+		usage_error "invalid port '$port'"
+		;;
+	esac
+	if [ "$port" -gt 65535 ]; then
 		usage_error "invalid port '$port'"
 	fi
 	printf "%s\n" "$port"
 }
 
-parse_file() {
-	local file="$1"
+parse_skel() {
+	local skel="$1"
 
-	if ! [ -f "$file" ] || ! [ -r "$file" ]; then
-		usage_error "cannot read '$file'"
+	if [ ! -d "$skel" ] || [ ! -r "$skel" ] || [ ! -x "$skel" ]; then
+		usage_error "directory '$skel' does not exist or is not accessible"
 	fi
-	printf "%s\n" "$file"
+	case "$skel" in
+	*:*) usage_error "invalid skeleton directory path" ;;
+	esac
+	printf "%s\n" "$skel"
+}
+
+parse_script() {
+	local script="$1"
+
+	if [ ! -f "$script" ] || [ ! -r "$script" ] || [ ! -x "$script" ]; then
+		usage_error "file '$script' does not exist or is not accessible"
+	fi
+	case "$script" in
+	*:*) usage_error "invalid post-installation script path" ;;
+	esac
+	printf "%s\n" "$script"
 }
 
 parse_opt() {
@@ -137,9 +161,11 @@ parse_opt() {
 	v) version ;;
 	n) name="$(parse_name "$arg")" ;;
 	i) image="$(parse_image "$arg")" ;;
-	p) port="$(parse_port "$arg")" ;;
-	x) script="$(parse_file "$arg")" ;;
+	k) skel="$(parse_skel "$arg")" ;;
+	x) script="$(parse_script "$arg")" ;;
 	R) asroot=t ;;
+	p) preserve=t ;;
+	r) recursive=t ;;
 	s) autostart=t ;;
 	F) fileonly=t ;;
 	g) regenerate=t ;;
@@ -157,7 +183,7 @@ parse_opts() {
 
 	OPTIND=1
 	while getopts "$optstr" opt; do
-		parse_opt "$opt" "${OPTARG:-?}"
+		parse_opt "$opt" "${OPTARG-?}"
 	done
 	shift $((OPTIND - 1))
 
@@ -169,8 +195,9 @@ parse_opts() {
 	fi
 
 	case "$command" in
-	create) optstr="${optstr}i:p:x:" ;;
-	cp | enter | exec) optstr="${optstr}Rs" ;;
+	cp) optstr="${optstr}Rpr" ;;
+	create) optstr="${optstr}i:k:x:" ;;
+	enter | exec) optstr="${optstr}Rs" ;;
 	ssh) optstr="${optstr}Fg" ;;
 	proxy | start | stop) ;;
 	*) usage_error "unknown command '$command'" ;;
@@ -281,8 +308,17 @@ SSH_CONFIG
 }
 
 cmd_cp() {
-	(cmd_exec exit)
-	exec scp -F "$(ssh_config)" -o "$(ssh_user)" -- "$@"
+	local flags=()
+
+	if [ -n "$preserve" ]; then
+		flags+=("-p")
+	fi
+	if [ -n "$recursive" ]; then
+		flags+=("-r")
+	fi
+	flags+=("--")
+
+	exec scp -F "$(ssh_config)" -o "$(ssh_user)" "${flags[@]}" "$@"
 }
 
 cmd_create() {
@@ -293,19 +329,24 @@ cmd_create() {
 	ssh_init
 	engine_create
 
-	if [ -n "$script" ]; then
-		cmd_start
-		scp -q -F "$(ssh_config)" -- "$script" "$name:/tmp/post-install"
-		ssh -q -F "$(ssh_config)" "$name" \
-			"chmod +x /tmp/post-install && /tmp/post-install"
-		engine_stop
+	cmd_start
+	if [ -n "$skel" ]; then
+		scp -q -F "$(ssh_config)" -p -r -- "${skel%/}/." "$name:"
 	fi
+	if [ -n "$script" ]; then
+		scp -q -F "$(ssh_config)" -p -- "$script" "$name:/tmp/post-install"
+	fi
+	ssh -q -F "$(ssh_config)" "$name" "
+		if [ -f /tmp/post-install ] && [ -x /tmp/post-install ]; then
+			/tmp/post-install && rm /tmp/post-install
+		elif [ -f /etc/dbx/post-install ] && [ -x /etc/dbx/post-install ]; then
+			/etc/dbx/post-install
+		fi
+	"
+	engine_stop
 }
 
-cmd_enter() {
-	cmd_exec
-}
-
+cmd_enter() { cmd_exec "$@"; }
 cmd_exec() {
 	if [ -n "$autostart" ]; then
 		cmd_start
@@ -341,7 +382,7 @@ cmd_ssh() {
 	if [ -n "$fileonly" ]; then
 		ssh_config
 	else
-		printf "-F '%s' %s\n" "$(ssh_config)" "$name"
+		printf "ssh -F %q %s\n" "$(ssh_config)" "$name"
 	fi
 }
 
@@ -367,10 +408,6 @@ if [ "$OS" = "Darwin" ] && has_commands container; then
 	}
 
 	engine_create() {
-		# The container engine does not bind to a host port with `sshd`, and so
-		# it ignores the option.
-		: "$port"
-
 		container machine create \
 			--name="$name" \
 			--no-boot \
@@ -381,7 +418,7 @@ if [ "$OS" = "Darwin" ] && has_commands container; then
 		# filesystem on the container machine directly, so use the script
 		# to authorise our SSH key. Additionally, remove the automatically
 		# given `sudo` access from the devbox user; the expectation is to
-		# use `dbx (exec|enter) -r` to perform priviledged operations.
+		# use `-R` to perform privileged operations.
 		container machine run \
 			--name="$name" \
 			--root \
@@ -472,20 +509,20 @@ elif [ "$OS" = "Linux" ] && has_commands podman krun; then
 CONFIG
 		fi
 
-		# We need to use `SIGKILL` for stopping `krun` containers, because
-		# of a limitation of the runtime.
+		# Set `KRUN_INIT_PID1` so our `init` ends up with PID 1 and let
+		# the OS allocate a port for publishing `sshd`.
 		podman create \
 			--runtime=krun \
 			--name="$name" \
+			--env="KRUN_INIT_PID1=1" \
 			--hostname="$name" \
-			--publish="127.0.0.1:$port:22" \
-			--stop-signal=SIGKILL \
+			--publish="127.0.0.1::22" \
 			"$image" \
 			>/dev/null
 		podman cp "$(ssh_id).pub" "$name:/etc/ssh/authorized_keys"
 
-		# Provision the our user on the devbox. The `krun` runtime does not
-		# support `podman exec` so execute the provisioning script over SSH.
+		# Provision the user on the devbox. The `krun` runtime does not
+		# support `podman exec` so execute the script over SSH.
 		engine_start
 		ssh_configure
 		engine_waitforsshd
@@ -497,7 +534,7 @@ CONFIG
 			if ! getent group '$gid' >/dev/null; then
 				groupadd -g '$gid' '$user'
 			fi
-			useradd -g '$gid' -m -s '\$(command -v bash)' -u '$uid' '$user'
+			useradd -g '$gid' -m -s \"\$(command -v bash)\" -u '$uid' '$user'
 		"
 		engine_stop
 	}
@@ -522,17 +559,27 @@ CONFIG
 	}
 
 	engine_stop() {
+		# `krun` runtime does not support sending `SIGTERM` signals to
+		# container processes for `podman stop` to work. Work around this
+		# by using SSH to terminate our init process. This is expected to
+		# produce an error, which we ignore. Additionally, `podman stop`
+		# defensively in case something went wrong with the kill.
+		ssh -q -F "$(ssh_config)" "root@$name" -- \
+			"kill -TERM 1" \
+			&>/dev/null || true
 		podman stop "$name" >/dev/null
 	}
 
 	engine_iscreated() {
-		podman inspect "$name" &>/dev/null
+		podman container inspect "$name" &>/dev/null
 	}
 
 	engine_isrunning() {
 		local running
 
-		running="$(podman inspect --format="{{.State.Running}}" "$name")"
+		running="$(
+			podman container inspect --format="{{.State.Running}}" "$name" 2>/dev/null
+		)"
 		[ "$running" = "true" ]
 	}
 
@@ -543,11 +590,13 @@ CONFIG
 	engine_port() {
 		local mapping
 
-		mapping="$(podman port "$name" 22/tcp | head -n1)"
+		mapping="$(podman port "$name" 22/tcp | head -n 1)"
 		parse_port "${mapping##*:}"
 	}
 else
-	general_error "no container engine installed"
+	engine_init() {
+		general_error "no supported container engine installed"
+	}
 fi
 
 main() {
