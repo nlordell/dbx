@@ -5,10 +5,11 @@
 set -euo pipefail
 
 command=enter
-name="${DBX_NAME:-dbx}"
+name="dbx"
 image=ghcr.io/nlordell/dbx:latest
 port=4222
 script=
+asroot=
 autostart=
 fileonly=
 regenerate=
@@ -24,8 +25,8 @@ usage: $0 [COMMAND] [OPTIONS...] [ARGS...]
 commands:
     cp          copies files to and from a devbox
     create      create a new devbox
-    enter       opens a shell in a devbox (default)
-    exec        runs a command in a devbox
+    enter       opens a shell in a devbox (default: \`dbx enter -s\`)
+    exec        executes a command in a devbox
     proxy       proxies a devbox port to the host
     ssh         print devbox \`ssh\` connection flags
     start       starts a devbox
@@ -36,8 +37,9 @@ create options:
     -i IMAGE    devbox container image (default: $image)
     -p PORT     host port \`sshd\` binds to (default: $port)
     -x SCRIPT   post installation script
-cp/enter/exec/proxy options:
-    -s          start the devbox before entering
+cp/enter/exec options:
+    -R          connect as root instead of the development user
+    -s          start the devbox if necessary
 ssh options:
     -F          only print the path to the \`ssh_config\` file
     -g          re-generate the SSH configuration
@@ -54,27 +56,57 @@ USAGE
 }
 
 version() {
-	echo "0.0.1"
+	printf "0.0.1\n"
 	exit 0
 }
 
 has_commands() {
+	local cmd
+
 	for cmd in "$@"; do
-		command -v "$cmd" >/dev/null
+		if ! command -v "$cmd" &>/dev/null; then
+			return 1
+		fi
 	done
+	return 0
 }
 
 perror() {
 	local code="$1"
 	local msg="$2"
 
-	echo "$0: $msg" >&2
+	printf "%s: %s\n" "$0" "$msg" >&2
 	exit "$code"
 }
 
 general_error() { perror 1 "$1"; }
 usage_error() { perror 1 "$1"; }
-todo() { perror 42 "not yet implemented"; }
+
+parse_name() {
+	local name="$1"
+
+	# Restrict allowed names only lower case letters and digits, with hyphens
+	# only allowed in the middle of the name. This is restrictive, but matches
+	# what is allowed by `container machine`.
+	case "$name" in
+	"" | [!a-z0-9]* | *[!a-z0-9-]* | *[!a-z0-9])
+		usage_error "invalid devbox name '$name'"
+		;;
+	esac
+	printf "%s\n" "$name"
+}
+
+parse_image() {
+	local image="$1"
+
+	# Make sure that the image isn't an option passed to the engine.
+	case "$image" in
+	"" | -*)
+		usage_error "invalid image '$image'"
+		;;
+	esac
+	printf "%s\n" "$image"
+}
 
 parse_port() {
 	local port="$1"
@@ -84,7 +116,7 @@ parse_port() {
 	} 2>/dev/null; then
 		usage_error "invalid port '$port'"
 	fi
-	echo "$port"
+	printf "%s\n" "$port"
 }
 
 parse_file() {
@@ -93,7 +125,7 @@ parse_file() {
 	if ! [ -f "$file" ] || ! [ -r "$file" ]; then
 		usage_error "cannot read '$file'"
 	fi
-	echo "$file"
+	printf "%s\n" "$file"
 }
 
 parse_opt() {
@@ -103,10 +135,11 @@ parse_opt() {
 	case "$opt" in
 	h) usage ;;
 	v) version ;;
-	n) name="$arg" ;;
-	i) image="$arg" ;;
+	n) name="$(parse_name "$arg")" ;;
+	i) image="$(parse_image "$arg")" ;;
 	p) port="$(parse_port "$arg")" ;;
 	x) script="$(parse_file "$arg")" ;;
+	R) asroot=t ;;
 	s) autostart=t ;;
 	F) fileonly=t ;;
 	g) regenerate=t ;;
@@ -117,6 +150,10 @@ parse_opt() {
 
 parse_opts() {
 	local optstr=":hvn:"
+
+	if [ -n "${DBX_NAME:-}" ]; then
+		name="$(parse_name "$DBX_NAME")"
+	fi
 
 	OPTIND=1
 	while getopts "$optstr" opt; do
@@ -133,9 +170,9 @@ parse_opts() {
 
 	case "$command" in
 	create) optstr="${optstr}i:p:x:" ;;
-	cp | enter | exec | proxy) optstr="${optstr}s" ;;
+	cp | enter | exec) optstr="${optstr}Rs" ;;
 	ssh) optstr="${optstr}Fg" ;;
-	start | stop) ;;
+	proxy | start | stop) ;;
 	*) usage_error "unknown command '$command'" ;;
 	esac
 
@@ -192,16 +229,31 @@ parse_opts() {
 }
 
 ssh_id() {
-	echo "$DATADIR/$name.id_ed25519"
+	printf "%s\n" "$DATADIR/$name.id_ed25519"
 }
 
 ssh_config() {
-	echo "$DATADIR/$name.ssh_config"
+	printf "%s\n" "$DATADIR/$name.ssh_config"
+}
+
+ssh_user() {
+	local user
+
+	if [ -n "$asroot" ]; then
+		user="root"
+	else
+		user="%u"
+	fi
+	printf "User=%s\n" "$user"
+}
+
+ssh_knownhosts() {
+	printf "%s\n" "$DATADIR/$name.known_hosts"
 }
 
 ssh_init() {
 	mkdir -p "$DATADIR" "$CONFIGDIR"
-	rm -f "$(ssh_id)" "$(ssh_id).pub"
+	rm -f "$(ssh_id)" "$(ssh_id).pub" "$(ssh_knownhosts)"
 	ssh-keygen -C dbx -f "$(ssh_id)" -N "" -t ed25519 \
 		</dev/null >/dev/null 2>/dev/null
 }
@@ -209,7 +261,6 @@ ssh_init() {
 ssh_configure() {
 	local hostname
 	local port
-	local knownhosts="$DATADIR/$name.known_hosts"
 	local userconfig="$CONFIGDIR/$name.ssh_config"
 
 	hostname="$(engine_hostname)"
@@ -218,26 +269,33 @@ ssh_configure() {
 Host $name
 	Hostname $hostname
 	Port $port
+	BatchMode yes
+	ConnectTimeout 1
 	IdentitiesOnly yes
 	IdentityFile "$(ssh_id)"
-	StrictHostKeyChecking no
-	UserKnownHostsFile "$knownhosts"
+	PreferredAuthentications publickey
+	StrictHostKeyChecking accept-new
+	UserKnownHostsFile "$(ssh_knownhosts)"
 	Include "$userconfig"
 SSH_CONFIG
 }
 
 cmd_cp() {
-	cmd_exec exit
-	exec scp -F "$(ssh_config)" -- "$@"
+	(cmd_exec exit)
+	exec scp -F "$(ssh_config)" -o "$(ssh_user)" -- "$@"
 }
 
 cmd_create() {
+	if engine_iscreated; then
+		general_error "devbox name in use"
+	fi
+
 	ssh_init
 	engine_create
 
 	if [ -n "$script" ]; then
 		cmd_start
-		scp -q -F "$(ssh_config)" "$script" "$name:/tmp/post-install"
+		scp -q -F "$(ssh_config)" -- "$script" "$name:/tmp/post-install"
 		ssh -q -F "$(ssh_config)" "$name" \
 			"chmod +x /tmp/post-install && /tmp/post-install"
 		engine_stop
@@ -254,22 +312,28 @@ cmd_exec() {
 	elif ! engine_isrunning; then
 		general_error 'devbox is not started'
 	fi
-	exec ssh -q -F "$(ssh_config)" "$name" -- "$@"
+	exec ssh -q -F "$(ssh_config)" -o "$(ssh_user)" "$name" -- "$@"
 }
 
 cmd_proxy() {
 	local devboxport="$1"
 	local hostport="$2"
 
-	if [ -n "$autostart" ]; then
-		cmd_start
+	if ! engine_isrunning; then
+		general_error 'devbox is not started'
 	fi
+
 	exec ssh -q -F "$(ssh_config)" \
+		-o "ExitOnForwardFailure=yes" \
 		-L "localhost:$hostport:localhost:$devboxport" -N \
 		"$name"
 }
 
 cmd_ssh() {
+	if ! engine_iscreated || [ ! -f "$(ssh_id)" ]; then
+		general_error "devbox not created"
+	fi
+
 	if [ -n "$regenerate" ]; then
 		ssh_configure
 	fi
@@ -277,7 +341,7 @@ cmd_ssh() {
 	if [ -n "$fileonly" ]; then
 		ssh_config
 	else
-		echo "-F '$(ssh_config)' $name"
+		printf "-F '%s' %s\n" "$(ssh_config)" "$name"
 	fi
 }
 
@@ -288,6 +352,7 @@ cmd_start() {
 
 	engine_start
 	ssh_configure
+	engine_waitforsshd
 }
 
 cmd_stop() {
@@ -295,6 +360,12 @@ cmd_stop() {
 }
 
 if [ "$OS" = "Darwin" ] && has_commands container; then
+	engine_init() {
+		if ! container system status &>/dev/null; then
+			general_error "container engine not running"
+		fi
+	}
+
 	engine_create() {
 		# The container engine does not bind to a host port with `sshd`, and so
 		# it ignores the option.
@@ -306,34 +377,47 @@ if [ "$OS" = "Darwin" ] && has_commands container; then
 			--home-mount=none \
 			"$image"
 
-		# Unfortunately, there is no way to access the filesystem on the
-		# container machine while it is stopped; instead boot it up and run a
-		# small script to authorize our SSH key.
+		# Provision the devbox. Note that there is no way to access the
+		# filesystem on the container machine directly, so use the script
+		# to authorise our SSH key. Additionally, remove the automatically
+		# given `sudo` access from the devbox user; the expectation is to
+		# use `dbx (exec|enter) -r` to perform priviledged operations.
 		container machine run \
 			--name="$name" \
 			--root \
-			"echo '$(cat "$(ssh_id).pub")' > /etc/ssh/authorized_keys"
+			"
+				printf '%s\n' '$(cat "$(ssh_id).pub")' > /etc/ssh/authorized_keys
+				rm '/etc/sudoers.d/$(id -un | tr . _)'
+			"
 		engine_stop
 	}
 
 	engine_start() {
 		# The only way to start a machine is to run a command - use one that
-		# does nothing but return `0` exit code.
+		# does nothing but return a `0` exit code.
 		container machine run \
 			--name="$name" \
 			--root \
 			true
 	}
 
+	engine_waitforsshd() {
+		:
+	}
+
 	engine_stop() {
 		container machine stop "$name" >/dev/null
+	}
+
+	engine_iscreated() {
+		container machine inspect "$name" &>/dev/null
 	}
 
 	engine_isrunning() {
 		local status
 
 		status="$(
-			container machine inspect "$name" |
+			container machine inspect "$name" 2>/dev/null |
 				grep '"status"' |
 				cut -d'"' -f4
 		)"
@@ -351,35 +435,116 @@ if [ "$OS" = "Darwin" ] && has_commands container; then
 		if [ -z "$ipaddress" ]; then
 			general_error "failed to read devbox IP address"
 		fi
-		echo "$ipaddress"
+		printf "%s\n" "$ipaddress"
 	}
 
 	engine_port() {
-		echo "22"
+		printf "22\n"
 	}
 elif [ "$OS" = "Linux" ] && has_commands podman krun; then
+	krun_vmconfig() {
+		printf "%s\n" "$CONFIGDIR/$name.krun_vm.json"
+	}
+
+	engine_init() {
+		if [ "$(id -u)" -eq 0 ]; then
+			general_error "krun runtime insecure as root"
+		fi
+	}
+
 	engine_create() {
-		todo
+		local cpus
+		local mem
+		local user
+		local uid
+		local gid
+
+		# Set the default `krun` VM configuration. Do not overwrite existing
+		# user configuration if the file already exists.
+		if [ ! -f "$(krun_vmconfig)" ]; then
+			cpus="$(grep -c '^processor[[:space:]]*:' /proc/cpuinfo)"
+			mem="$(awk '/^MemTotal:/ {printf "%d", $2/1024}' /proc/meminfo)"
+			cat <<CONFIG >"$(krun_vmconfig)"
+{
+	"cpus": $((cpus <= 32 ? (cpus + 1) / 2 : 16)),
+	"ram_mib": $(((mem + 1) / 2))
+}
+CONFIG
+		fi
+
+		# We need to use `SIGKILL` for stopping `krun` containers, because
+		# of a limitation of the runtime.
+		podman create \
+			--runtime=krun \
+			--name="$name" \
+			--hostname="$name" \
+			--publish="127.0.0.1:$port:22" \
+			--stop-signal=SIGKILL \
+			"$image" \
+			>/dev/null
+		podman cp "$(ssh_id).pub" "$name:/etc/ssh/authorized_keys"
+
+		# Provision the our user on the devbox. The `krun` runtime does not
+		# support `podman exec` so execute the provisioning script over SSH.
+		engine_start
+		ssh_configure
+		engine_waitforsshd
+		user="$(id -un)"
+		uid="$(id -u)"
+		gid="$(id -g)"
+		ssh -q -F "$(ssh_config)" "root@$name" "
+			set -eu
+			if ! getent group '$gid' >/dev/null; then
+				groupadd -g '$gid' '$user'
+			fi
+			useradd -g '$gid' -m -s '\$(command -v bash)' -u '$uid' '$user'
+		"
+		engine_stop
 	}
 
 	engine_start() {
-		todo
+		# As a security precaution, do not allow image-provided `krun`
+		# configurations, and write one from the host. This greatly reduces
+		# the possible attack surface from the devbox, as it does not allow
+		# an attacker to control VM startup options (e.g. a custom kernel).
+		podman cp "$(krun_vmconfig)" "$name:/.krun_vm.json"
+		podman start "$name" >/dev/null
+	}
+
+	engine_waitforsshd() {
+		for _ in {1..10}; do
+			if ssh -q -F "$(ssh_config)" "root@$name" true; then
+				return 0
+			fi
+			sleep 0.1 2>/dev/null || sleep 1
+		done
+		general_error "devbox SSH server did not become ready"
 	}
 
 	engine_stop() {
-		todo
+		podman stop "$name" >/dev/null
+	}
+
+	engine_iscreated() {
+		podman inspect "$name" &>/dev/null
 	}
 
 	engine_isrunning() {
-		todo
+		local running
+
+		running="$(podman inspect --format="{{.State.Running}}" "$name")"
+		[ "$running" = "true" ]
 	}
 
 	engine_hostname() {
-		echo "127.0.0.1"
+		printf "127.0.0.1\n"
 	}
 
 	engine_port() {
-		todo
+		local mapping
+
+		mapping="$(podman port "$name" 22/tcp | head -n1)"
+		parse_port "${mapping##*:}"
 	}
 else
 	general_error "no container engine installed"
@@ -387,6 +552,7 @@ fi
 
 main() {
 	parse_opts "$@"
+	engine_init
 	"cmd_$command" ${args[@]+"${args[@]}"}
 }
 
