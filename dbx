@@ -269,7 +269,7 @@ ssh_user() {
 	if [ -n "$asroot" ]; then
 		user="root"
 	else
-		user="%u"
+		user="$(id -un)"
 	fi
 	printf "User=%s\n" "$user"
 }
