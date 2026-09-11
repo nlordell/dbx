@@ -41,5 +41,6 @@ RUN echo "StreamLocalBindUnlink yes" >> /etc/ssh/sshd_config && \
     touch /etc/ssh/authorized_keys
 
 # Set up the entrypoint
+RUN mkdir -p /etc/dbx/rc.d
 COPY init /sbin/init
 ENTRYPOINT ["/sbin/init"]

@@ -322,6 +322,8 @@ cmd_cp() {
 }
 
 cmd_create() {
+	local user
+
 	if engine_iscreated; then
 		general_error "devbox name in use"
 	fi
@@ -334,13 +336,15 @@ cmd_create() {
 		scp -q -F "$(ssh_config)" -p -r -- "${skel%/}/." "$name:"
 	fi
 	if [ -n "$script" ]; then
-		scp -q -F "$(ssh_config)" -p -- "$script" "$name:/tmp/post-install"
+		scp -q -F "$(ssh_config)" -p -- "$script" "root@$name:/tmp/post-install"
 	fi
-	ssh -q -F "$(ssh_config)" "$name" "
+
+	user="$(id -un)"
+	ssh -q -F "$(ssh_config)" "root@$name" "
 		if [ -f /tmp/post-install ] && [ -x /tmp/post-install ]; then
-			/tmp/post-install && rm /tmp/post-install
+			/tmp/post-install '$user' && rm /tmp/post-install
 		elif [ -f /etc/dbx/post-install ] && [ -x /etc/dbx/post-install ]; then
-			/etc/dbx/post-install
+			/etc/dbx/post-install '$user'
 		fi
 	"
 	engine_stop
