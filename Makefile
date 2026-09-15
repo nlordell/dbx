@@ -25,6 +25,6 @@ container: container/Containerfile container/init
 	$(CONTAINER) build --tag $(IMAGE) container
 
 .PHONY: check
-check: dbx
-	shellcheck dbx
-	shfmt -d dbx
+check: dbx container/init container/stop
+	shellcheck $^
+	shfmt -d $^

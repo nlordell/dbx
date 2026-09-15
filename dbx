@@ -20,6 +20,7 @@ args=()
 OS="$(uname -s)"
 DATADIR="${XDG_DATA_HOME:-$HOME/.local/share}/dbx"
 CONFIGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/dbx"
+RUNTIMEDIR="${XDG_RUNTIME_DIR:-/run/user/$UID}/dbx"
 
 usage() {
 	cat <<USAGE
@@ -255,6 +256,10 @@ parse_opts() {
 	fi
 }
 
+dbx_mkdirs() {
+	mkdir -p "$DATADIR" "$CONFIGDIR" "$RUNTIMEDIR"
+}
+
 ssh_id() {
 	printf "%s\n" "$DATADIR/$name.id_ed25519"
 }
@@ -279,7 +284,6 @@ ssh_knownhosts() {
 }
 
 ssh_init() {
-	mkdir -p "$DATADIR" "$CONFIGDIR"
 	rm -f "$(ssh_id)" "$(ssh_id).pub" "$(ssh_knownhosts)"
 	ssh-keygen -C dbx -f "$(ssh_id)" -N "" -t ed25519 \
 		</dev/null >/dev/null 2>/dev/null
@@ -328,6 +332,7 @@ cmd_create() {
 		general_error "devbox name in use"
 	fi
 
+	dbx_mkdirs
 	ssh_init
 	engine_create
 
@@ -395,12 +400,23 @@ cmd_start() {
 		return 0
 	fi
 
+	dbx_mkdirs
 	engine_start
 	ssh_configure
 	engine_waitforsshd
 }
 
 cmd_stop() {
+	# Stop the devbox, ensuring that any configured local stop script is
+	# run. Furthermore, the `krun` runtime does not support sending the
+	# `SIGTERM` signal to container processes for `podman stop` to work,
+	# so this also ensures that the init process is correctly terminated.
+	ssh -q -F "$(ssh_config)" "root@$name" -- \
+		"/sbin/stop" \
+		&>/dev/null || true
+
+	# Additionally, defensively ask the engine to stop the devbox in case
+	# something went wrong.
 	engine_stop
 }
 
@@ -564,14 +580,6 @@ CONFIG
 	}
 
 	engine_stop() {
-		# `krun` runtime does not support sending `SIGTERM` signals to
-		# container processes for `podman stop` to work. Work around this
-		# by using SSH to terminate our init process. This is expected to
-		# produce an error, which we ignore. Additionally, `podman stop`
-		# defensively in case something went wrong with the kill.
-		ssh -q -F "$(ssh_config)" "root@$name" -- \
-			"kill -TERM 1" \
-			&>/dev/null || true
 		podman stop "$name" >/dev/null
 	}
 

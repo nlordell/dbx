@@ -2,16 +2,22 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
 
-if [ ! -f /run/.dbxenv ]; then
-	echo "ERROR: not in a devbox" >&2
+if [ "$(id -u)" -ne 0 ]; then
+	printf '%s: operation not permitted\n' "$0" >&2
 	exit 1
 fi
 
-for rc in /etc/dbx/rc.d/*; do
-	if [ ! -f "$rc" ] || [ ! -x "$rc" ]; then
-		continue
-	fi
-	"$rc" || printf '%s: %s failed (%d)\n' "$0" "$rc" "$?" >&2
-done
+touch /run/.dbxenv
+printf "%d\n" "$$" >/run/dbx.pid
+
+if [ -f /etc/dbx/init.local ] && [ -x /etc/dbx/init.local ]; then
+	/etc/dbx/init.local ||
+		printf '%s: init.local failed (%d)\n' "$0" "$?" >&2
+fi
+
+# The init process is not guaranteed to be on PID 1 for all runtimes (notably,
+# `krun` will wrap the init process). Tell tini to act like an init process
+# regardless of its PID.
+export TINI_SUBREAPER=yes
 
 exec /usr/bin/tini /usr/sbin/sshd -- -D -e

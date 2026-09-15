@@ -1,8 +1,5 @@
 FROM docker.io/library/debian:13
 
-# Flag that we are a devbox
-RUN touch /run/.dbxenv
-
 # Remove container-specific APT configurations, and install required packages
 RUN rm /etc/apt/apt.conf.d/docker-* && \
     apt-get update && \
@@ -40,7 +37,7 @@ RUN echo "StreamLocalBindUnlink yes" >> /etc/ssh/sshd_config && \
     echo "AuthorizedKeysFile /etc/ssh/authorized_keys" >> /etc/ssh/sshd_config && \
     touch /etc/ssh/authorized_keys
 
-# Set up the entrypoint
-RUN mkdir -p /etc/dbx/rc.d
-COPY init /sbin/init
+# Set up the init and stop
+RUN mkdir -p /etc/dbx
+COPY init stop /sbin
 ENTRYPOINT ["/sbin/init"]

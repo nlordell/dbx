@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-FileCopyrightText: 2026 Nicholas Rodrigues Lordello <n@lordello.net>
+
+if [ "$(id -u)" -ne 0 ]; then
+	printf '%s: operation not permitted\n' "$0" >&2
+	exit 1
+fi
+
+if [ -x /etc/dbx/stop.local ]; then
+	/etc/dbx/stop.local ||
+		printf '%s: stop.local failed (%d)\n' "$0" "$?" >&2
+fi
+
+if ! pid="$(cat /run/dbx.pid)"; then
+	printf '%s: could not read init PID file, assuming 1\n' "$0" >&2
+	pid=1
+fi
+kill -TERM "$pid" ||
+	printf '%s: could not stop init[%s] (%d)\n' "$0" "$pid" "$?" >&2
