@@ -529,14 +529,10 @@ elif [ "$OS" = "Linux" ] && has_commands podman krun; then
 CONFIG
 		fi
 
-		# Set `KRUN_INIT_PID1` so our `init` ends up with PID 1 and let
-		# the OS allocate a port for publishing `sshd`.
 		podman create \
 			--runtime=krun \
 			--name="$name" \
-			--env="KRUN_INIT_PID1=1" \
 			--hostname="$name" \
-			--network="pasta:--no-map-gw,--map-guest-addr,none" \
 			--publish="127.0.0.1::22" \
 			"$image" \
 			>/dev/null
