@@ -20,7 +20,9 @@ args=()
 OS="$(uname -s)"
 DATADIR="${XDG_DATA_HOME:-$HOME/.local/share}/dbx"
 CONFIGDIR="${XDG_CONFIG_HOME:-$HOME/.config}/dbx"
-RUNTIMEDIR="${XDG_RUNTIME_DIR:-/run/user/$UID}/dbx"
+if [ "$OS" = "Linux" ]; then
+	RUNTIMEDIR="${XDG_RUNTIME_DIR:-/run/user/$UID}/dbx"
+fi
 
 usage() {
 	cat <<USAGE
@@ -178,7 +180,7 @@ parse_opt() {
 parse_opts() {
 	local optstr=":hvn:"
 
-	if [ -n "${DBX_NAME:-}" ]; then
+	if [ -n "${DBX_NAME-}" ]; then
 		name="$(parse_name "$DBX_NAME")"
 	fi
 
@@ -206,7 +208,7 @@ parse_opts() {
 
 	OPTIND=1
 	while getopts "$optstr" opt; do
-		parse_opt "$opt" "${OPTARG:-?}"
+		parse_opt "$opt" "${OPTARG-?}"
 	done
 	shift $((OPTIND - 1))
 
@@ -257,7 +259,10 @@ parse_opts() {
 }
 
 dbx_mkdirs() {
-	mkdir -p "$DATADIR" "$CONFIGDIR" "$RUNTIMEDIR"
+	mkdir -p "$DATADIR" "$CONFIGDIR"
+	if [ -n "${RUNTIMEDIR-}" ]; then
+		mkdir -p "$RUNTIMEDIR"
+	fi
 }
 
 ssh_id() {
