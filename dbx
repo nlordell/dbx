@@ -24,7 +24,7 @@ RUNTIMEDIR="${XDG_RUNTIME_DIR:-/run/user/$UID}/dbx"
 
 usage() {
 	cat <<USAGE
-usage: $0 [COMMAND] [OPTIONS...] [ARGS...]
+usage: $(basename "$0") [COMMAND] [OPTIONS...] [ARGS...]
 commands:
     cp          copies files to and from a devbox
     create      create a new devbox
@@ -82,7 +82,7 @@ perror() {
 	local code="$1"
 	local msg="$2"
 
-	printf "%s: %s\n" "$0" "$msg" >&2
+	printf "%s: %s\n" "$(basename "$0")" "$msg" >&2
 	exit "$code"
 }
 
